@@ -1,0 +1,52 @@
+# Contributing to SOCAgents
+
+Thank you for helping build SOCAgents.
+
+## Status
+
+The project is pre-alpha. The design is complete and implementation has started. Please open an issue to discuss any large change before you start on a pull request.
+
+## Most Wanted Contributions
+
+| Area | Examples |
+|---|---|
+| Data providers | new free quote or option chain sources, broker read-only providers |
+| Desk roles | volatility surface analyst, earnings analyst, macro analyst |
+| Skills | strategy playbooks as `SKILL.md` packages (read-only) |
+| Evaluation | replay datasets, report quality checks |
+| Docs | tutorials, translations, examples |
+
+## Ground Rules
+
+- **No order-placing code outside the trade plan flow.** Orders only happen through the risk engine, approval, and SocSwift pre-orders.
+- **No proprietary SocSwift logic.** The SocSwift provider is only an API client.
+- **No hidden telemetry.** Any analytics must be opt-in.
+- **Untrusted data stays untrusted.** News, social text, external MCP output, and skills never become system instructions.
+- **No performance claims** in code, docs, examples, or skills.
+
+## Development (planned)
+
+```bash
+git clone https://github.com/dearvn/SOCAgents.git
+cd SOCAgents
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```
+
+## Pull Request Checklist
+
+- [ ] Tests added or updated; `pytest` passes
+- [ ] Types and Pydantic models for every new tool input and output
+- [ ] Docs updated when behavior changes
+- [ ] No secrets, keys, or account data in code, tests, or fixtures
+- [ ] New tools declare risk class, timeout, cache TTL, and snapshot policy
+- [ ] Commits signed off (`git commit -s`) under the Developer Certificate of Origin
+
+## Developer Certificate of Origin
+
+By signing off a commit you certify that you wrote the change or have the right to submit it under the Apache License 2.0. See https://developercertificate.org.
+
+## Code of Conduct
+
+Be respectful and constructive. Harassment, spam, and promotion of trading signals or paid groups are not allowed in issues, discussions, or pull requests.
