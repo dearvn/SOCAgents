@@ -4,7 +4,7 @@ Thank you for helping build SOCAgents.
 
 ## Status
 
-The project is pre-alpha. The design is complete and implementation has started. Please open an issue to discuss any large change before you start on a pull request.
+The project is pre-alpha. Public design docs live in [`docs/`](docs/README.md), and implementation has started. Please open an issue to discuss any large change before you start on a pull request.
 
 ## Most Wanted Contributions
 

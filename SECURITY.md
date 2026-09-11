@@ -4,9 +4,14 @@ SOCAgents can connect to brokerage-related systems through SocSwift. Security re
 
 ## Reporting a Vulnerability
 
-- Use GitHub private vulnerability reporting: the **Security** tab of this repository → **Report a vulnerability**. (Maintainers: enable it in repository settings.)
+- Use GitHub private vulnerability reporting: the **Security** tab of this repository → **Report a vulnerability**.
 - Do not open public issues for vulnerabilities.
 - Include steps to reproduce, affected version or commit, and impact.
+- If private reporting is unavailable, open an issue titled "Security contact request" with no details, and a maintainer will contact you privately.
+
+## Supported Versions
+
+SOCAgents is pre-alpha. Security fixes go to the latest commit on `main`. After v0.1, the latest release is supported.
 
 ## What to Expect
 
