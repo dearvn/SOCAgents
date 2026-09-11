@@ -41,6 +41,8 @@ class OptionContract(BaseModel):
     volume: int = 0
     open_interest: int = 0
     iv: float | None = None
+    delta: float | None = None
+    gamma: float | None = None
 
 
 class OptionChain(DataMeta):
@@ -67,6 +69,29 @@ class BarSeries(DataMeta):
     bars: list[Bar]
 
 
+class Headline(BaseModel):
+    title: str
+    source: str
+    url: str | None = None
+    published_at: datetime | None = None
+
+
+class HeadlineSet(DataMeta):
+    symbol: str
+    headlines: list[Headline]
+
+
+class EconomicEvent(BaseModel):
+    time: datetime
+    name: str
+    importance: Literal["low", "medium", "high"] = "medium"
+    country: str = "US"
+
+
+class EventSet(DataMeta):
+    events: list[EconomicEvent]
+
+
 class MarketDataProvider(Protocol):
     name: str
     mode: Mode
@@ -76,3 +101,9 @@ class MarketDataProvider(Protocol):
     async def option_chain(self, symbol: str, expiration: date | None = None) -> OptionChain: ...
 
     async def bars(self, symbol: str, interval: str = "5m", lookback: int = 78) -> BarSeries: ...
+
+    async def headlines(self, symbol: str, limit: int = 10) -> HeadlineSet: ...
+
+    async def events(self, hours: int = 48) -> EventSet: ...
+
+    async def aclose(self) -> None: ...

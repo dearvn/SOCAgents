@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from socagents.core.crypto import PayloadCipher, is_encrypted
 from socagents.core.errors import SocAgentsError
 from socagents.core.ids import new_id
 from socagents.core.timeutil import iso, utcnow
@@ -106,6 +108,8 @@ BEGIN SELECT RAISE(ABORT, 'audit_events are append-only'); END;
 """
 
 TERMINAL = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.EXPIRED}
+REDACTED = {"redacted": True, "reason": "Member data is not stored without an OS keychain."}
+MEMBER_RETENTION_DAYS = 30
 
 
 def _dumps(value: Any) -> str:
@@ -113,7 +117,10 @@ def _dumps(value: Any) -> str:
 
 
 class Store:
-    def __init__(self, path: Path | str) -> None:
+    """``cipher`` encrypts member snapshot payloads. Without it they are not persisted."""
+
+    def __init__(self, path: Path | str, *, cipher: PayloadCipher | None = None) -> None:
+        self._cipher = cipher
         in_memory = str(path) == ":memory:"
         if not in_memory:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -315,7 +322,7 @@ class Store:
                 socswift_user_id,
                 tool,
                 _dumps(args),
-                _dumps(payload),
+                self.seal(payload, mode),
                 source,
                 as_of,
                 int(bool(delayed_sec)),
@@ -336,7 +343,7 @@ class Store:
             return None
         result = dict(row)
         result["args"] = json.loads(result["args"])
-        result["payload"] = json.loads(result["payload"])
+        result["payload"] = self.unseal(result["payload"])
         result["delayed"] = bool(result["delayed"])
         return result
 
@@ -384,3 +391,35 @@ class Store:
             (run_id, actor, action, _dumps(detail) if detail is not None else None, iso(utcnow())),
         )
         self._db.commit()
+
+    # member data
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        return self._db
+
+    def seal(self, payload: dict[str, Any], mode: str) -> str:
+        if mode != "member":
+            return _dumps(payload)
+        if self._cipher is None:
+            return _dumps(REDACTED)
+        return self._cipher.encrypt(_dumps(payload))
+
+    def unseal(self, raw: str) -> dict[str, Any]:
+        if not is_encrypted(raw):
+            data: dict[str, Any] = json.loads(raw)
+            return data
+        text = self._cipher.decrypt(raw) if self._cipher is not None else None
+        return json.loads(text) if text is not None else dict(REDACTED)
+
+    def purge_member_data(self, *, older_than_days: int | None = None) -> int:
+        """Delete member snapshots (all, or those older than N days). Returns rows deleted."""
+        query = "DELETE FROM data_snapshots WHERE mode = 'member'"
+        params: tuple[Any, ...] = ()
+        if older_than_days is not None:
+            cutoff = iso(utcnow() - timedelta(days=older_than_days))
+            query += " AND created_at < ?"
+            params = (cutoff,)
+        deleted = self._db.execute(query, params).rowcount
+        self._db.commit()
+        return deleted

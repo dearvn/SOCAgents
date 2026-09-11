@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -18,6 +19,8 @@ from socagents.runtime.states import RunStatus
 from socagents.tools.gateway import SnapshotRef, ToolGateway
 from socagents.tools.sdk import ToolContext
 
+Observer = Callable[[str, dict[str, Any]], None]
+
 
 class RunError(BaseModel):
     code: str
@@ -32,6 +35,7 @@ class RunResult(BaseModel):
     answer: str | None = None
     error: RunError | None = None
     snapshots: list[SnapshotRef] = Field(default_factory=list)
+    notices: list[str] = Field(default_factory=list)
     steps: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -67,6 +71,7 @@ class NativeLoopRuntime:
         budget: Budget | None = None,
         prices: dict[str, Price] | None = None,
         role: str = "agent",
+        observer: Observer | None = None,
     ) -> None:
         self._model = model
         self._gateway = gateway
@@ -75,10 +80,16 @@ class NativeLoopRuntime:
         self._budget = budget or Budget()
         self._prices = prices or {}
         self._role = role
+        self._observer = observer
 
     @property
     def model_name(self) -> str:
         return f"{self._model.provider}/{self._model.model}"
+
+    def _emit(self, run_id: str, type: str, payload: dict[str, Any]) -> None:
+        self._store.add_event(run_id, type, payload)
+        if self._observer is not None:
+            self._observer(type, {"role": self._role, "run_id": run_id, **payload})
 
     async def run(
         self,
@@ -95,11 +106,12 @@ class NativeLoopRuntime:
             kind=kind, mode=provider.mode, model=self.model_name, input=input_meta
         )
         store.transition_run(run_id, RunStatus.RUNNING)
-        store.add_event(run_id, "run.started", {"kind": kind, "model": self.model_name})
+        self._emit(run_id, "run.started", {"kind": kind, "model": self.model_name})
 
         ctx = ToolContext(run_id=run_id, provider=provider, mode=provider.mode, member=member)
         meter = UsageMeter()
         snapshots: dict[str, SnapshotRef] = {}
+        notices: list[str] = []
         status = RunStatus.COMPLETED
         answer: str | None = None
         error: RunError | None = None
@@ -108,7 +120,9 @@ class NativeLoopRuntime:
             if not self._settings.kill_switches.agents:
                 raise SocAgentsError("Agents are disabled (AGENTS=0).", code="agents_disabled")
             async with asyncio.timeout(self._budget.max_seconds):
-                answer = await self._loop(run_id, system, user_message, ctx, meter, snapshots)
+                answer = await self._loop(
+                    run_id, system, user_message, ctx, meter, snapshots, notices
+                )
         except TimeoutError:
             status = RunStatus.EXPIRED
             error = RunError(
@@ -140,7 +154,7 @@ class NativeLoopRuntime:
             )
         else:
             store.transition_run(run_id, status, error=error.model_dump() if error else None)
-        store.add_event(
+        self._emit(
             run_id,
             f"run.{status.value}",
             {"snapshot_ids": snapshot_ids, "error": error.model_dump() if error else None},
@@ -154,6 +168,7 @@ class NativeLoopRuntime:
             answer=answer,
             error=error,
             snapshots=list(snapshots.values()),
+            notices=notices,
             steps=meter.steps,
             input_tokens=meter.input_tokens,
             output_tokens=meter.output_tokens,
@@ -168,6 +183,7 @@ class NativeLoopRuntime:
         ctx: ToolContext,
         meter: UsageMeter,
         snapshots: dict[str, SnapshotRef],
+        notices: list[str],
     ) -> str:
         messages = [Message(role="user", content=user_message)]
         tools = self._gateway.registry.specs()
@@ -192,7 +208,7 @@ class NativeLoopRuntime:
             messages.append(
                 Message(role="assistant", content=response.text, tool_calls=response.tool_calls)
             )
-            self._store.add_event(
+            self._emit(
                 run_id,
                 "model.completed",
                 {
@@ -200,6 +216,7 @@ class NativeLoopRuntime:
                     "tool_calls": [c.name for c in response.tool_calls],
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens,
+                    "cost_usd": cost,
                 },
             )
             meter.check(self._budget)
@@ -208,10 +225,12 @@ class NativeLoopRuntime:
                 return response.text
 
             for call in response.tool_calls:
-                self._store.add_event(run_id, "tool.started", {"tool": call.name, "id": call.id})
+                self._emit(run_id, "tool.started", {"tool": call.name, "id": call.id})
                 result = await self._gateway.call(ctx, call)
                 if result.snapshot is not None:
                     snapshots[result.snapshot.id] = result.snapshot
+                if result.notice:
+                    notices.append(result.notice)
                 messages.append(
                     Message(
                         role="tool",
@@ -221,7 +240,7 @@ class NativeLoopRuntime:
                         is_error=not result.ok,
                     )
                 )
-                self._store.add_event(
+                self._emit(
                     run_id,
                     "tool.completed",
                     {

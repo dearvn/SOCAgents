@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 from socagents.core.config import Settings
 from socagents.core.errors import SocAgentsError
 from socagents.db.store import Store
+from socagents.growth import Upsell
 from socagents.model_gateway.types import ToolCall
 from socagents.tools.registry import ToolRegistry
 from socagents.tools.sdk import RiskClass, Tool, ToolContext, Trust
@@ -43,16 +44,29 @@ class ToolResult(BaseModel):
     content: dict[str, Any]
     snapshot: SnapshotRef | None = None
     error_code: str | None = None
+    notice: str | None = None
 
     def to_message_content(self) -> str:
         return json.dumps(self.content, default=str)
 
 
 class ToolGateway:
-    def __init__(self, registry: ToolRegistry, store: Store, settings: Settings) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        store: Store,
+        settings: Settings,
+        *,
+        upsell: Upsell | None = None,
+    ) -> None:
         self.registry = registry
         self._store = store
         self._settings = settings
+        self._upsell = upsell
+        # In-memory copies of this gateway's snapshot payloads, used for number verification.
+        self.payloads: dict[str, dict[str, Any]] = {}
+        # Snapshot ids from trusted tools. Ideas must cite at least one of these.
+        self.trusted: set[str] = set()
 
     async def call(self, ctx: ToolContext, call: ToolCall) -> ToolResult:
         started = time.perf_counter()
@@ -66,7 +80,7 @@ class ToolGateway:
         if not switches.agents:
             return self._deny(ctx, call, tool, "agents_disabled", "Agents are disabled.", started)
         if tool.member_only and not ctx.member:
-            return self._deny(
+            result = self._deny(
                 ctx,
                 call,
                 tool,
@@ -74,6 +88,9 @@ class ToolGateway:
                 "This tool uses SocSwift member data. Community mode cannot call it.",
                 started,
             )
+            if self._upsell is not None:
+                result.notice = self._upsell.line(tool.upgrade_text or "SocSwift member data.")
+            return result
         if tool.risk_class in (RiskClass.HIGH, RiskClass.CRITICAL):
             if not switches.agent_orders:
                 return self._deny(
@@ -135,6 +152,9 @@ class ToolGateway:
                 mode=ctx.mode,
                 trust=tool.trust.value,
             )
+            self.payloads[snapshot_id] = payload
+            if tool.trust is not Trust.UNTRUSTED:
+                self.trusted.add(snapshot_id)
             snapshot = SnapshotRef(
                 id=snapshot_id,
                 tool=tool.name,

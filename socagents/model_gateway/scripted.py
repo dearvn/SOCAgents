@@ -14,6 +14,7 @@ from socagents.core.ids import new_id
 from socagents.model_gateway.types import Message, ModelResponse, ToolCall, ToolSpec, Usage
 
 SYMBOLS_PREFIX = "Symbols:"
+ROLE_MARKER = "Role:"  # matches socagents.desk.roles.ROLE_MARKER
 
 
 class ScriptedModel:
@@ -35,6 +36,11 @@ class ScriptedModel:
         tools: list[ToolSpec],
         max_tokens: int,
     ) -> ModelResponse:
+        role = _role_from(system)
+        if role is not None:
+            from socagents.desk.offline import respond
+
+            return respond(role, messages, tools, self.model)
         if not any(m.role == "tool" for m in messages):
             calls = _plan_calls(_symbols_from(messages), {t.name for t in tools})
             if calls:
@@ -48,6 +54,13 @@ class ScriptedModel:
         return ModelResponse(
             text=compose_answer(messages), usage=Usage(), stop_reason="end_turn", model=self.model
         )
+
+
+def _role_from(system: str) -> str | None:
+    for line in system.splitlines():
+        if line.startswith(ROLE_MARKER):
+            return line.removeprefix(ROLE_MARKER).strip() or None
+    return None
 
 
 def _symbols_from(messages: list[Message]) -> list[str]:

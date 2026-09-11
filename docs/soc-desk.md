@@ -8,7 +8,7 @@ A team of specialized agents that analyze a symbol, argue both sides, and delive
 |---|---|---|---|
 | Dealer Positioning Analyst | open-interest GEX estimate from a delayed chain | SocSwift GEX engine, regime, expected range | gamma regime, walls, zero-gamma flip |
 | Flow Analyst | volume vs open interest changes | live institutional options flow | where money is positioning |
-| Futures Hedge Analyst | not available | dealer hedge flow for ES/NQ (`deep` profile, after v0.1) | dealer hedging pressure |
+| Futures Hedge Analyst | not available | dealer hedge flow for ES/NQ (`deep` profile) | dealer hedging pressure |
 | Technical Analyst | free bars, VWAP, levels | intraday bars | trend, levels, momentum |
 | Event and News Analyst | economic calendar, headlines (untrusted) | same | event risk for the session |
 | Bull and Bear Researchers | analyst reports | analyst reports | strongest case for each side |
@@ -42,7 +42,7 @@ trigger ────────>├─ Futures Hedge *     ├──> Bull ⇄ 
 |---|---|---|---|---|
 | `lite` | Dealer Positioning, Technical, Desk Lead; risk engine only | 0 | 3–4 | local models, quick checks |
 | `standard` | four analysts, Bull, Bear, Strategist, Risk Officer, Desk Lead | 1 | about 10 | default |
-| `deep` | `standard` plus Futures Hedge and a second-opinion pass | 2 | 14–18 | members, after v0.1 |
+| `deep` | `standard` plus Futures Hedge and a second-opinion pass | 2 | 14–18 | members |
 
 `--rounds N` overrides the profile's debate rounds. Each role can use a different model, for example a local model for analysts and a cloud model for the Desk Lead.
 
@@ -94,12 +94,20 @@ Numbers are illustrative.
 
 ## Agentic Capabilities
 
+Available now:
+
 - Parallel tool-using agents and a structured bull/bear debate.
 - Deterministic guardrails: the risk engine decides; LLMs propose and critique.
+- Key levels checked against the numbers in the snapshots they cite.
+- `run_desk` as an MCP tool.
+- Live terminal view of the desk.
+
+Planned:
+
 - Memory and reflection: past desk calls per symbol are stored with realized outcomes.
-- MCP in both directions: `run_desk` as an MCP tool, and external MCP servers as read-only desk tools.
+- External MCP servers as read-only desk tools.
 - Skills: strategy playbooks as `SKILL.md` packages that can reference existing read-only tools but cannot add tools or code.
-- Live terminal view of the desk; replay on stored snapshots to compare models, prompts, or skills.
+- Replay on stored snapshots to compare models, prompts, or skills.
 
 ## Relation to TradingAgents
 

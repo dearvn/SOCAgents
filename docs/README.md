@@ -1,6 +1,6 @@
 # SOCAgents Design Docs
 
-Public design documents for SOCAgents. The project is pre-alpha, so these describe the planned v0.1 design and may change.
+Public design documents for SOCAgents. The project is pre-alpha: SOC Desk, the data providers, the CLI, and the MCP server are implemented, and items marked planned may change.
 
 | Document | What it covers |
 |---|---|

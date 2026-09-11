@@ -47,6 +47,7 @@ class Tool[InT: BaseModel, OutT: BaseModel]:
     timeout_s: float = 10.0
     snapshot: bool = True
     member_only: bool = False
+    upgrade_text: str | None = None
 
     def __post_init__(self) -> None:
         if not _NAME_RE.match(self.name):

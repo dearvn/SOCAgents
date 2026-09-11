@@ -17,7 +17,7 @@ We assume:
 - **The LLM proposes. Deterministic code disposes.** The risk engine is a pure function with no I/O. It returns allow or deny with reasons and suggested fixes. Whether a human approval is needed is decided by a separate policy.
 - **Orders only through approved trade plans.** SOCAgents never talks to a broker directly. For members, approved single-leg plans become SocSwift pre-orders; SocSwift's own safety checks still apply.
 - **Execution checks need fresh data.** Community ideas run on delayed data and are never marked as passing for execution.
-- **Untrusted data stays untrusted.** External text is wrapped as data with provenance flags. Ideas must cite at least one trusted data snapshot.
+- **Untrusted data stays untrusted.** External text is wrapped as data with provenance flags, and likely injection attempts in headlines are flagged. Ideas must cite at least one trusted data snapshot, or they are rejected.
 - **Numbers are verified.** Levels and prices in a report are checked against the latest snapshots; unmatched numbers are removed.
 - **Budgets and caps** on steps, tokens, cost, and debate rounds for every run.
 
@@ -45,7 +45,8 @@ We assume:
 ## Member Data in the CLI
 
 - SocSwift data is served only to a valid member credential, checked on every request.
-- The CLI stores member data encrypted at rest, for at most 30 days and only while membership is active. It is purged within 24 hours of lapse or `socagents logout`.
+- The CLI stores member data encrypted at rest with a key kept in the OS keychain. Without a keychain, member payloads are not stored at all (only a redaction marker).
+- Member data is kept for at most 30 days. It is purged on `socagents logout`, and on the next run after SocSwift rejects the stored key (lapsed membership or revoked key). A temporary outage does not purge.
 - Reports containing member data cannot be exported or shared.
 
 ## Sharing and Public Output

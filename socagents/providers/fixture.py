@@ -7,13 +7,24 @@ market data.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
 from socagents.core.errors import ProviderError, SymbolNotFound
-from socagents.providers.base import Bar, BarSeries, Mode, OptionChain, Quote, QuoteSet
+from socagents.providers.base import (
+    Bar,
+    BarSeries,
+    EconomicEvent,
+    EventSet,
+    Headline,
+    HeadlineSet,
+    Mode,
+    OptionChain,
+    Quote,
+    QuoteSet,
+)
 
 FIXTURE_PACKAGE = "socagents.providers.fixtures"
 
@@ -25,6 +36,9 @@ class FixtureProvider:
     def __init__(self, data_dir: Path | None = None) -> None:
         self._data_dir = data_dir
         self._cache: dict[str, dict[str, Any]] = {}
+
+    async def aclose(self) -> None:
+        return None
 
     def available_symbols(self) -> list[str]:
         if self._data_dir is not None:
@@ -52,6 +66,14 @@ class FixtureProvider:
         self._cache[symbol] = doc
         return doc
 
+    def _meta(self, doc: dict[str, Any]) -> dict[str, Any]:
+        meta = doc["meta"]
+        return {
+            "source": meta["source"],
+            "as_of": meta["as_of"],
+            "delayed_sec": meta["delayed_sec"],
+        }
+
     async def quotes(self, symbols: list[str]) -> QuoteSet:
         if not symbols:
             raise ProviderError("At least one symbol is required.")
@@ -68,7 +90,7 @@ class FixtureProvider:
         doc = self._load(symbol)
         chain = OptionChain.model_validate(
             {
-                **doc["meta"],
+                **self._meta(doc),
                 "symbol": symbol.upper(),
                 "underlying_price": doc["quote"]["last"],
                 "contracts": doc["chain"],
@@ -95,5 +117,20 @@ class FixtureProvider:
             )
         bars = [Bar.model_validate(b) for b in series["bars"]][-lookback:]
         return BarSeries(
-            **doc["meta"], symbol=symbol.upper(), interval=series["interval"], bars=bars
+            **self._meta(doc), symbol=symbol.upper(), interval=series["interval"], bars=bars
         )
+
+    async def headlines(self, symbol: str, limit: int = 10) -> HeadlineSet:
+        doc = self._load(symbol)
+        items = [Headline.model_validate(h) for h in doc.get("headlines", [])][:limit]
+        return HeadlineSet(**self._meta(doc), symbol=symbol.upper(), headlines=items)
+
+    async def events(self, hours: int = 48) -> EventSet:
+        symbols = self.available_symbols()
+        if not symbols:
+            raise ProviderError("No fixture data is installed.")
+        doc = self._load(symbols[0])
+        start = datetime.fromisoformat(doc["meta"]["as_of"])
+        end = start + timedelta(hours=hours)
+        events = [EconomicEvent.model_validate(e) for e in doc.get("events", [])]
+        return EventSet(**self._meta(doc), events=[e for e in events if start <= e.time <= end])

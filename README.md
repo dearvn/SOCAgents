@@ -4,7 +4,7 @@
 
 A team of AI agents reads dealer positioning, options flow, and price action, argues the bull and bear case, and hands you an evidence-cited desk report. It runs free on public data. It gets real-time institutional flow and dealer positioning from [SocSwift](https://socswift.com/?ref=socagents&utm_source=github&utm_medium=readme) when you are a member.
 
-> **Status: pre-alpha.** The design is documented in [`docs/`](docs/README.md) and implementation has started. The commands below describe the planned v0.1 interface. Star or watch the repository to follow progress.
+> **Status: pre-alpha.** SOC Desk, the Community data provider, member data, the CLI, and the MCP server are implemented. The package is not on PyPI yet, so install it from source. Star or watch the repository to follow progress.
 
 <!-- Demo: docs/assets/desk-demo.gif, a 45-second recording of `socagents desk SPX` with analysts working and debating live. -->
 
@@ -15,36 +15,30 @@ A team of AI agents reads dealer positioning, options flow, and price action, ar
 - **The LLM proposes. Deterministic code disposes.** Nothing trades without your approval, and a code-based risk engine checks every idea.
 - Every number in a report cites the data snapshot it came from.
 
-## Try the Foundation Now
-
-The v0.0 foundation runs offline on bundled synthetic data. No account or API key needed:
+## Quickstart
 
 ```bash
 git clone https://github.com/dearvn/SOCAgents.git && cd SOCAgents
-python -m venv .venv && source .venv/bin/activate && pip install -e .
-socagents ask "SPY" --provider fixture                         # offline scripted model
-socagents ask "SPY" --model anthropic/<model>                  # your own key
-socagents ask "SPY" --model ollama/<model>                     # local model
-socagents doctor
-```
+python -m venv .venv && source .venv/bin/activate && pip install -e ".[mcp]"
 
-## Quickstart (planned v0.1)
+# offline: bundled synthetic data and a scripted model, no account or key
+socagents desk SPY --provider fixture
 
-```bash
-pip install socagents
-
-# any supported model provider
+# free delayed public data with your own model
 export ANTHROPIC_API_KEY=...        # or OPENAI_API_KEY / GOOGLE_API_KEY
+socagents desk SPX -m anthropic/<model>                  # standard profile, live terminal view
+socagents desk QQQ -m anthropic/<model> --profile lite   # fewer agents, faster, cheaper
+socagents ask "Where is SPX dealer gamma flipping today?" -m anthropic/<model>
+socagents brief --symbols SPY,QQQ -m anthropic/<model>
 
-socagents desk SPX                  # full desk with a live terminal view
-socagents desk QQQ --profile lite   # fewer agents, faster, cheaper
-socagents ask "Where is SPX dealer gamma flipping today?"
+socagents config set default_model anthropic/<model>     # skip -m from now on
+socagents doctor                                         # check keys, storage, and data sources
 ```
 
 Run fully local with Ollama:
 
 ```bash
-socagents desk SPY --model ollama/<model> --profile lite   # one model for every role
+socagents desk SPY -m ollama/<model> --profile lite   # one model for every role
 ```
 
 ## How It Works
@@ -106,23 +100,23 @@ Trade ideas appear only in your own terminal. In Community mode they are labeled
     "socagents": {
       "command": "socagents",
       "args": ["mcp", "serve"],
-      "env": { "ANTHROPIC_API_KEY": "..." }
+      "env": { "ANTHROPIC_API_KEY": "...", "SOCAGENTS_MODEL": "anthropic/<model>" }
     }
   }
 }
 ```
 
-Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` tool makes its own model calls, so the MCP server needs a provider key (or a local model). Without a key, the data tools and the `desk` prompt still work on your assistant's own model. Members add their SocSwift API key with `socagents login`.
+Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` tool makes its own model calls, so the MCP server needs a provider key and a model (or a local model). Without a key, the data tools and the `desk` prompt still work on your assistant's own model. Members add their SocSwift API key with `socagents login`.
 
-## Planned v0.1 Features
+## v0.1 Features
 
-- SOC Desk with `lite` and `standard` profiles (the `deep` profile with futures hedge flow comes next)
+- SOC Desk with `lite` and `standard` profiles, and `deep` for members
 - Live terminal view of the desk
-- Community data provider: delayed quotes, option chains, GEX estimate, technicals
+- Community data provider: delayed quotes, option chains, bars, headlines, GEX estimate, flow estimate, technicals
 - SocSwift data for members through the SocSwift Agent API
-- CLI and MCP server
-- Any model: Anthropic, OpenAI, Google, or local models through Ollama
-- Deterministic risk engine and evidence-cited reports
+- CLI (`desk`, `ask`, `brief`, `report`, `login`, `config`, `doctor`) and a local MCP server
+- Any model: Anthropic, OpenAI, Google, or local models through Ollama, set per role
+- Deterministic risk engine, and key levels checked against the data they cite
 - Markdown and JSON export of Community reports (without trade ideas)
 
 ## Roadmap
@@ -138,7 +132,7 @@ Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` t
 
 ## Documentation
 
-Public design docs: [docs/](docs/README.md). User guides ship with v0.1.
+Design docs and the CLI reference: [docs/](docs/README.md).
 
 ## Contributing
 

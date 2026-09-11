@@ -27,4 +27,8 @@ def fmt_delay(seconds: int | None) -> str:
         return "real-time"
     if seconds < 60:
         return f"{seconds}s"
-    return f"{seconds // 60}m"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds < 86400:
+        return f"{seconds // 3600}h {seconds % 3600 // 60}m"
+    return f"{seconds // 86400}d {seconds % 86400 // 3600}h"

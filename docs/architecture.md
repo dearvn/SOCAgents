@@ -16,7 +16,7 @@ SocSwift data is available only to SocSwift members.
              │  CLI (desk, ask, brief, login, mcp)  │   MCP server (run_desk, data tools, desk prompt)
              └───────────────┬──────────────────────┘
                              v
-                   Runtime (native loop / graph runtime)
+                  Runtime (native loop / desk orchestrator)
                              │
           ┌──────────────────┼─────────────────────────┐
           v                  v                         v
@@ -34,7 +34,7 @@ SocSwift data is available only to SocSwift members.
 
 ## Runtime
 
-- A runtime protocol with two implementations: a native tool-use loop for single agents, and a graph runtime (LangGraph) for SOC Desk.
+- A native tool-use loop runs each agent. SOC Desk adds a small asyncio orchestrator on top: analysts in parallel, then debate rounds, strategist, risk review, and desk lead. It has no graph-framework dependency.
 - Every run has limits on steps, cost, and wall-clock time, and checkpoints after each step.
 - Context is assembled in priority order: fixed safety policy, glossary, template instructions, user instructions, memory, trigger, then tool results wrapped as data.
 
@@ -66,11 +66,14 @@ class MarketDataProvider(Protocol):
     async def quotes(self, symbols: list[str]) -> QuoteSet: ...
     async def option_chain(self, symbol: str, expiration: date | None = None) -> OptionChain: ...
     async def bars(self, symbol: str, interval: str = "5m", lookback: int = 78) -> BarSeries: ...
+    async def headlines(self, symbol: str, limit: int = 10) -> HeadlineSet: ...
+    async def events(self, hours: int = 48) -> EventSet: ...
 ```
 
-- **Fixture provider** (available now): bundled synthetic data for tests, CI, and offline demos.
-- **Community provider**: pluggable free sources, run on your own machine for personal use. Respect each source's terms. The GEX value is an estimate from open interest and is always labeled "estimate, delayed".
+- **Fixture provider**: bundled synthetic data for tests, CI, and offline demos.
+- **Community provider**: free sources, run on your own machine for personal use: Cboe delayed quotes and option chains, Yahoo Finance bars and headlines, and an optional economic calendar you keep in `~/.socagents/calendar.json`. Respect each source's terms. GEX, flow, and technicals are computed locally, and the GEX value is always labeled "estimate, delayed".
 - **SocSwift provider**: an API client for members. No SocSwift logic ships in this repository.
+- Provider choice: `--provider`, then `SOCAGENTS_PROVIDER`, then `config default_provider`, then SocSwift when a member key is stored, else Community. If a stored key is no longer valid, the run falls back to Community and says so.
 - In Community mode, a member-only tool returns `requires_membership` with one line on what the data would add.
 
 ## Data Snapshots
