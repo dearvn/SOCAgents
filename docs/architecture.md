@@ -60,12 +60,15 @@ Every tool declares its input and output schema, risk class, timeout, cache TTL,
 
 ```python
 class MarketDataProvider(Protocol):
-    name: Literal["community", "socswift"]
-    async def quote(self, symbols: list[str]) -> list[Quote]: ...
-    async def option_chain(self, symbol: str, expiration: date | None) -> OptionChain: ...
-    async def bars(self, symbol: str, interval: str, lookback: int) -> list[Bar]: ...
+    name: str  # "fixture", "community", or "socswift"
+    mode: Literal["community", "member"]
+
+    async def quotes(self, symbols: list[str]) -> QuoteSet: ...
+    async def option_chain(self, symbol: str, expiration: date | None = None) -> OptionChain: ...
+    async def bars(self, symbol: str, interval: str = "5m", lookback: int = 78) -> BarSeries: ...
 ```
 
+- **Fixture provider** (available now): bundled synthetic data for tests, CI, and offline demos.
 - **Community provider**: pluggable free sources, run on your own machine for personal use. Respect each source's terms. The GEX value is an estimate from open interest and is always labeled "estimate, delayed".
 - **SocSwift provider**: an API client for members. No SocSwift logic ships in this repository.
 - In Community mode, a member-only tool returns `requires_membership` with one line on what the data would add.

@@ -15,6 +15,19 @@ A team of AI agents reads dealer positioning, options flow, and price action, ar
 - **The LLM proposes. Deterministic code disposes.** Nothing trades without your approval, and a code-based risk engine checks every idea.
 - Every number in a report cites the data snapshot it came from.
 
+## Try the Foundation Now
+
+The v0.0 foundation runs offline on bundled synthetic data. No account or API key needed:
+
+```bash
+git clone https://github.com/dearvn/SOCAgents.git && cd SOCAgents
+python -m venv .venv && source .venv/bin/activate && pip install -e .
+socagents ask "SPY" --provider fixture                         # offline scripted model
+socagents ask "SPY" --model anthropic/<model>                  # your own key
+socagents ask "SPY" --model ollama/<model>                     # local model
+socagents doctor
+```
+
 ## Quickstart (planned v0.1)
 
 ```bash
