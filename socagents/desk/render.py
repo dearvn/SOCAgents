@@ -15,7 +15,7 @@ from rich.table import Table
 from rich.text import Text
 
 from socagents.core.timeutil import ET, fmt_delay, fmt_et
-from socagents.desk.models import DeskIdea, DeskReport, IdeaRiskCheck, ReviewedIdea
+from socagents.desk.models import DeskIdea, DeskReport, IdeaRiskCheck, ReviewedIdea, Stance
 from socagents.desk.roles import ROLES
 
 STANCE_STYLE = {"bullish": "green", "bearish": "red", "neutral": "yellow"}
@@ -79,7 +79,8 @@ def _idea_line(item: ReviewedIdea) -> Text:
 def _stances(report: DeskReport) -> Text:
     counts = Counter(a.stance for a in report.analysts)
     text = Text("Analysts: ", style="bold")
-    shown = [stance for stance in ("bullish", "bearish", "neutral") if counts[stance]]
+    order: tuple[Stance, ...] = ("bullish", "bearish", "neutral")
+    shown = [stance for stance in order if counts[stance]]
     for i, stance in enumerate(shown):
         if i:
             text.append(" · ")
