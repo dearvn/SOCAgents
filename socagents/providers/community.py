@@ -42,6 +42,8 @@ from socagents.providers.base import (
 )
 
 CBOE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{symbol}.json"
+# The options file carries the full chain (about 6 MB for SPY); quotes use the small file.
+CBOE_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/{symbol}.json"
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_RSS_URL = "https://feeds.finance.yahoo.com/rss/2.0/headline"
 CBOE_SOURCE = "Cboe delayed quotes"
@@ -69,8 +71,9 @@ class CommunityProvider:
         self._calendar_path = calendar_path
         self._cache_ttl_s = cache_ttl_s
         self._cache: dict[str, tuple[float, Any]] = {}
+        self._inflight: dict[str, asyncio.Future[Any]] = {}
         self._client = httpx.AsyncClient(
-            timeout=20.0,
+            timeout=25.0,
             transport=transport,
             follow_redirects=True,
             headers={
@@ -88,6 +91,21 @@ class CommunityProvider:
         cached = self._cache.get(key)
         if cached is not None and cached[0] > time.monotonic():
             return cached[1]
+        # Concurrent callers share one download. The shield keeps a caller's timeout from
+        # cancelling the download for the others.
+        pending = self._inflight.get(key)
+        if pending is None:
+            pending = asyncio.ensure_future(self._fetch(key, url, params, text=text))
+            self._inflight[key] = pending
+            pending.add_done_callback(lambda done: self._settle(key, done))
+        return await asyncio.shield(pending)
+
+    def _settle(self, key: str, done: asyncio.Future[Any]) -> None:
+        self._inflight.pop(key, None)
+        if not done.cancelled():
+            done.exception()  # mark as retrieved when every caller has gone
+
+    async def _fetch(self, key: str, url: str, params: dict[str, str] | None, *, text: bool) -> Any:
         host = httpx.URL(url).host
         try:
             response = await self._client.get(url, params=params)
@@ -117,16 +135,14 @@ class CommunityProvider:
         self._cache[key] = (time.monotonic() + self._cache_ttl_s, value)
         return value
 
-    async def _cboe(self, symbol: str) -> dict[str, Any]:
-        doc: dict[str, Any] = await self._get(
-            CBOE_URL.format(symbol=INDEX_CBOE.get(symbol, symbol))
-        )
+    async def _cboe(self, symbol: str, url: str = CBOE_URL) -> dict[str, Any]:
+        doc: dict[str, Any] = await self._get(url.format(symbol=INDEX_CBOE.get(symbol, symbol)))
         return doc
 
     async def quotes(self, symbols: list[str]) -> QuoteSet:
         if not symbols:
             raise ProviderError("At least one symbol is required.")
-        docs = await asyncio.gather(*(self._cboe(s.upper()) for s in symbols))
+        docs = await asyncio.gather(*(self._cboe(s.upper(), CBOE_QUOTE_URL) for s in symbols))
         return QuoteSet(
             source=CBOE_SOURCE,
             as_of=min(parse_cboe_timestamp(d) for d in docs),
@@ -207,12 +223,18 @@ def _int(value: Any) -> int:
 
 
 def parse_cboe_timestamp(doc: dict[str, Any]) -> datetime:
-    raw = doc.get("timestamp")
-    if isinstance(raw, str):
-        try:
-            return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=ET).astimezone(UTC)
-        except ValueError:
-            pass
+    """Time of the last trade. The file timestamp only says when Cboe wrote the file, which
+    after the close or on a weekend is hours or days after the last trade."""
+    data = doc.get("data") or {}
+    for raw, fmt in (
+        (data.get("last_trade_time"), "%Y-%m-%dT%H:%M:%S"),
+        (doc.get("timestamp"), "%Y-%m-%d %H:%M:%S"),
+    ):
+        if isinstance(raw, str):
+            try:
+                return datetime.strptime(raw, fmt).replace(tzinfo=ET).astimezone(UTC)
+            except ValueError:
+                continue
     return utcnow()
 
 

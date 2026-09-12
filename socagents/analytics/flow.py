@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from socagents.core.market import expiration_is_live
 from socagents.core.timeutil import ET
 from socagents.providers.base import OptionChain, OptionContract
 
@@ -59,7 +60,11 @@ def estimate_flow(
     top_n: int = 5,
 ) -> FlowEstimate:
     today = chain.as_of.astimezone(ET).date()
-    contracts = [c for c in chain.contracts if 0 <= (c.expiration - today).days <= max_dte]
+    contracts = [
+        c
+        for c in chain.contracts
+        if expiration_is_live(c.expiration, chain.as_of) and (c.expiration - today).days <= max_dte
+    ]
     if not contracts:
         raise ValueError(f"No {chain.symbol} contracts expire within {max_dte} days.")
 

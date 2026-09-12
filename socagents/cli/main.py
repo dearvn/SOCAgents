@@ -100,6 +100,12 @@ SkillOption = Annotated[
         "be enabled first.",
     ),
 ]
+FullOption = Annotated[
+    bool,
+    typer.Option(
+        "--full", help="Show the analysts, debate, evidence ids, and the Risk Officer's notes."
+    ),
+]
 ModelOption = Annotated[
     str | None,
     typer.Option(
@@ -274,6 +280,7 @@ def desk(
     skill: SkillOption = None,
     as_json: Annotated[bool, typer.Option("--json", help="Print the full report as JSON.")] = False,
     live: Annotated[bool, typer.Option("--live/--no-live", help="Live view while running.")] = True,
+    full: FullOption = False,
 ) -> None:
     """Run SOC Desk: analysts, bull/bear debate, strategist, risk engine, and desk lead."""
     settings = _settings()
@@ -313,7 +320,7 @@ def desk(
     if as_json:
         typer.echo(report.model_dump_json(indent=2))
     else:
-        console.print(render_report(report))
+        console.print(render_report(report, full=full))
 
 
 @app.command()
@@ -417,6 +424,7 @@ def report_list(limit: Annotated[int, typer.Option(min=1, max=200)] = 20) -> Non
 def report_show(
     ref: Annotated[str, typer.Argument(help="Report id, desk run id, or a unique prefix.")],
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    full: FullOption = False,
 ) -> None:
     """Show a Desk Report."""
     store, desk_store = _desk_store(_settings())
@@ -429,7 +437,7 @@ def report_show(
     if as_json:
         typer.echo(report.model_dump_json(indent=2))
     else:
-        console.print(render_report(report))
+        console.print(render_report(report, full=full))
 
 
 @report_app.command("export")

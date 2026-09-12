@@ -21,6 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from socagents.core.market import expiration_is_live
 from socagents.core.timeutil import ET
 from socagents.providers.base import OptionChain, OptionContract
 
@@ -76,7 +77,9 @@ def eligible_contracts(chain: OptionChain, max_dte: int) -> list[OptionContract]
     return [
         c
         for c in chain.contracts
-        if c.open_interest > 0 and 0 <= (c.expiration - today).days <= max_dte
+        if c.open_interest > 0
+        and expiration_is_live(c.expiration, chain.as_of)
+        and (c.expiration - today).days <= max_dte
     ]
 
 

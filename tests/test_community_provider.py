@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,7 @@ from socagents.core.errors import ProviderError, SymbolNotFound
 from socagents.providers.community import (
     CommunityProvider,
     parse_cboe_chain,
+    parse_cboe_timestamp,
     parse_rss,
     parse_yahoo_bars,
 )
@@ -117,6 +119,14 @@ def test_parse_cboe_chain_without_options() -> None:
         parse_cboe_chain({"data": {"current_price": 1.0, "options": []}}, "X")
 
 
+def test_timestamp_is_the_last_trade_not_the_file_time() -> None:
+    # Saturday file for Friday's close: the file time is 12 hours after the last trade.
+    doc = {"timestamp": "2026-09-12 03:44:34", "data": {"last_trade_time": "2026-09-11T15:59:59"}}
+    assert parse_cboe_timestamp(doc) == datetime(2026, 9, 11, 19, 59, 59, tzinfo=UTC)
+    without = {"timestamp": "2026-09-12 03:44:34", "data": {}}
+    assert parse_cboe_timestamp(without) == datetime(2026, 9, 12, 7, 44, 34, tzinfo=UTC)
+
+
 def test_parse_yahoo_bars_skips_incomplete_rows() -> None:
     series = parse_yahoo_bars(YAHOO_DOC, "SPY", "5m")
     assert len(series.bars) == 2
@@ -142,21 +152,62 @@ def test_parse_rss_rejects_garbage() -> None:
         parse_rss("<rss><unclosed>")
 
 
-async def test_quotes_and_chain_share_one_cached_request() -> None:
-    p, router = provider({"/options/SPY.json": httpx.Response(200, json=CBOE_DOC)})
+async def test_quotes_use_the_small_quote_file_and_chains_are_cached() -> None:
+    p, router = provider(
+        {
+            "/quotes/SPY.json": httpx.Response(200, json=CBOE_DOC),
+            "/options/SPY.json": httpx.Response(200, json=CBOE_DOC),
+        }
+    )
     quotes = await p.quotes(["spy"])
     chain = await p.option_chain("SPY", date(2026, 9, 10))
+    await p.option_chain("SPY")
     await p.aclose()
     assert quotes.quotes[0].last == 581.2
     assert quotes.source == "Cboe delayed quotes"
     assert len(chain.contracts) == 1
-    assert len(router.requests) == 1
+    assert [r.url.path.rsplit("/", 2)[-2:] for r in router.requests] == [
+        ["quotes", "SPY.json"],
+        ["options", "SPY.json"],
+    ]
+
+
+def slow_cboe(delay: float) -> tuple[CommunityProvider, list[httpx.Request]]:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        await asyncio.sleep(delay)
+        return httpx.Response(200, json=CBOE_DOC)
+
+    return CommunityProvider(transport=httpx.MockTransport(handler)), requests
+
+
+async def test_concurrent_chain_requests_share_one_download() -> None:
+    p, requests = slow_cboe(0.02)
+    chains = await asyncio.gather(*(p.option_chain("SPY") for _ in range(4)))
+    await p.aclose()
+    assert [len(c.contracts) for c in chains] == [2, 2, 2, 2]
+    assert len(requests) == 1
+
+
+async def test_a_timed_out_caller_does_not_cancel_the_shared_download() -> None:
+    p, requests = slow_cboe(0.05)
+    impatient = asyncio.ensure_future(p.option_chain("SPY"))
+    patient = asyncio.ensure_future(p.option_chain("SPY"))
+    await asyncio.sleep(0.01)
+    impatient.cancel()
+    chain = await patient
+    await p.aclose()
+    assert impatient.cancelled()
+    assert len(chain.contracts) == 2
+    assert len(requests) == 1
 
 
 async def test_index_symbols_map_to_source_symbols() -> None:
     p, router = provider(
         {
-            "/options/_SPX.json": httpx.Response(200, json=CBOE_DOC),
+            "/quotes/_SPX.json": httpx.Response(200, json=CBOE_DOC),
             "GSPC": httpx.Response(200, json=YAHOO_DOC),
         }
     )
@@ -191,7 +242,7 @@ async def test_bars_and_headlines() -> None:
     ],
 )
 async def test_http_errors_map_to_codes(response: httpx.Response, code: str) -> None:
-    p, _ = provider({"/options/SPY.json": response})
+    p, _ = provider({"/quotes/SPY.json": response})
     with pytest.raises(ProviderError) as info:
         await p.quotes(["SPY"])
     await p.aclose()

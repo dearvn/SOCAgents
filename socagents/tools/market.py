@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints
 
+from socagents.core.market import live_expirations
 from socagents.providers.base import Bar, OptionContract
 from socagents.tools.registry import ToolRegistry
 from socagents.tools.sdk import Tool, ToolContext
@@ -125,8 +126,7 @@ async def get_option_chain_summary(args: ChainSummaryIn, ctx: ToolContext) -> Ch
     if args.expiration is not None:
         expiration = args.expiration
     else:
-        upcoming = [d for d in expirations if d >= full.as_of.date()]
-        expiration = (upcoming or expirations)[0]
+        expiration = (live_expirations(expirations, full.as_of) or expirations)[0]
     chain = await ctx.provider.option_chain(args.symbol, expiration)
     calls = [c for c in chain.contracts if c.right == "call"]
     puts = [c for c in chain.contracts if c.right == "put"]
@@ -225,6 +225,7 @@ CHAIN_TOOL: Tool[ChainSummaryIn, ChainSummaryOut] = Tool(
     input_model=ChainSummaryIn,
     output_model=ChainSummaryOut,
     handler=get_option_chain_summary,
+    timeout_s=30.0,
 )
 
 BARS_TOOL: Tool[BarsIn, BarsOut] = Tool(

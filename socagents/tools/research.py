@@ -13,7 +13,7 @@ from socagents.analytics.flow import FlowEstimate, estimate_flow, mid_price
 from socagents.analytics.gex import GexEstimate, estimate_gex
 from socagents.analytics.technicals import Technicals, compute_technicals
 from socagents.core.errors import ProviderError
-from socagents.core.timeutil import ET
+from socagents.core.market import live_expirations
 from socagents.providers.base import EconomicEvent
 from socagents.safety import looks_like_injection
 from socagents.tools.market import Symbol, _Input, _Output
@@ -128,8 +128,7 @@ class OptionQuoteOut(_Output):
 
 async def get_option_quote(args: OptionQuoteIn, ctx: ToolContext) -> OptionQuoteOut:
     chain = await ctx.provider.option_chain(args.symbol)
-    today = chain.as_of.astimezone(ET).date()
-    expirations = [d for d in chain.expirations() if d >= today] or chain.expirations()
+    expirations = live_expirations(chain.expirations(), chain.as_of) or chain.expirations()
     expiration = args.expiration or expirations[0]
     candidates = [
         c for c in chain.contracts if c.expiration == expiration and c.right == args.right
@@ -256,6 +255,7 @@ FLOW_TOOL: Tool[FlowIn, FlowOut] = Tool(
     input_model=FlowIn,
     output_model=FlowOut,
     handler=get_flow_estimate,
+    timeout_s=30.0,
 )
 
 OPTION_QUOTE_TOOL: Tool[OptionQuoteIn, OptionQuoteOut] = Tool(
@@ -267,6 +267,7 @@ OPTION_QUOTE_TOOL: Tool[OptionQuoteIn, OptionQuoteOut] = Tool(
     input_model=OptionQuoteIn,
     output_model=OptionQuoteOut,
     handler=get_option_quote,
+    timeout_s=30.0,
 )
 
 HEADLINES_TOOL: Tool[HeadlinesIn, HeadlinesOut] = Tool(

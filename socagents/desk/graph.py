@@ -18,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 
 from socagents.core.errors import AgentsDisabled, ConfigError, ModelError, SocAgentsError
 from socagents.core.ids import new_id
+from socagents.core.market import MarketSession, market_session
 from socagents.core.timeutil import ET, utcnow
 from socagents.db.store import Store
 from socagents.desk.models import (
@@ -107,6 +108,7 @@ class DeskGraph:
         self._mode = "community"
         self._desk_run_id = ""
         self._as_of: datetime = utcnow()
+        self._market: MarketSession | None = None
 
     # events
 
@@ -189,12 +191,15 @@ class DeskGraph:
 
     async def _run(self, profile: Profile, rounds: int, roles: list[str]) -> DeskReport:
         spot, spot_snapshot = await self._context_quote()
+        # A replay judges the session at the time of its recorded data, not today.
+        self._market = market_session(self._as_of, self._as_of if self._replay else None)
         base = {
             "symbol": self._symbol,
             "mode": self._mode,
             "spot": spot,
             "spot_snapshot": spot_snapshot,
             "as_of": self._as_of.isoformat(),
+            "market": self._market.context(),
         }
 
         results = await asyncio.gather(*(self._analyst(name, base) for name in profile.analysts))
@@ -333,6 +338,7 @@ class DeskGraph:
             skills=[
                 SkillRef(name=s.name, source=s.source, sha256=s.content_hash) for s in self._skills
             ],
+            market=self._market,
         )
         self._desk_store.save_report(report)
         return report
@@ -377,11 +383,16 @@ class DeskGraph:
 
     async def _analyst(self, name: str, base: dict[str, Any]) -> AnalystReport | None:
         role = ROLES[name]
+        session = (
+            "the next session (the market is closed, so the data is from the last session)"
+            if self._market is not None and not self._market.is_open
+            else "today's session"
+        )
         report = await self._role_output(
             name,
             base,
             AnalystReport,
-            f"Analyze {self._symbol} for today's session as the {role.title}.",
+            f"Analyze {self._symbol} for {session} as the {role.title}.",
         )
         if report is None:
             return None
@@ -429,8 +440,9 @@ class DeskGraph:
             settings=self._settings,
             budget=Budget(
                 max_steps=role.max_steps,
-                max_output_tokens=role.max_output_tokens,
+                max_output_tokens=role.max_output_tokens * role.max_steps,
                 max_seconds=300.0,
+                max_tokens_per_call=role.max_output_tokens,
             ),
             prices=self._prices,
             role=name,

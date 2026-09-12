@@ -123,6 +123,33 @@ def test_expired_and_far_expirations_are_excluded() -> None:
     assert est.expirations_used == [date(2026, 9, 18)]
 
 
+# Closing print of Fri 2026-09-11 (15:59:59 ET): that day's contracts are done.
+CLOSE = datetime(2026, 9, 11, 19, 59, 59, tzinfo=UTC)
+
+
+def closing_chain() -> OptionChain:
+    return chain(
+        [
+            contract(100, "call", 5_000, volume=9_000, expiration=date(2026, 9, 11)),
+            contract(100, "put", 5_000, volume=9_000, expiration=date(2026, 9, 11)),
+            contract(100, "call", 1_000, volume=900, expiration=date(2026, 9, 14)),
+            contract(100, "put", 1_000, volume=900, expiration=date(2026, 9, 14)),
+        ]
+    ).model_copy(update={"as_of": CLOSE})
+
+
+def test_gex_after_the_close_skips_contracts_that_expired_that_day() -> None:
+    est = estimate_gex(closing_chain())
+    assert est.expirations_used == [date(2026, 9, 14)]
+    assert est.contracts_used == 2
+
+
+def test_flow_after_the_close_skips_contracts_that_expired_that_day() -> None:
+    flow = estimate_flow(closing_chain())
+    assert flow.expirations_used == [date(2026, 9, 14)]
+    assert flow.call_volume == 900
+
+
 # technicals
 
 

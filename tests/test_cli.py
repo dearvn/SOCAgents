@@ -137,6 +137,9 @@ def test_report_list_show_and_export(tmp_path: Path) -> None:
     assert report_id in listing.output
     shown = runner.invoke(app, ["report", "show", report_id[:12]])
     assert shown.exit_code == 0 and "Key levels" in shown.output
+    assert "Debate" not in shown.output
+    full = runner.invoke(app, ["report", "show", report_id, "--full"])
+    assert full.exit_code == 0 and "Debate" in full.output
 
     exported = runner.invoke(app, ["report", "export", report_id])
     assert exported.exit_code == 0

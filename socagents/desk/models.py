@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from socagents.core.errors import SocAgentsError
+from socagents.core.market import MarketSession
 from socagents.risk.engine import PriceBasis, RiskFix, RiskReason, TradeIdea
 
 Stance = Literal["bullish", "bearish", "neutral"]
@@ -202,6 +203,7 @@ class DeskReport(BaseModel):
     created_at: datetime
     replay_of: str | None = None
     skills: list[SkillRef] = Field(default_factory=list)
+    market: MarketSession | None = None
     disclaimer: str = DISCLAIMER
 
     def shareable_view(self) -> dict[str, Any]:

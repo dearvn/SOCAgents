@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from socagents.core.errors import ModelError
-from socagents.model_gateway.types import Message, ModelProvider, Usage
+from socagents.model_gateway.types import TRUNCATED_STOP_REASONS, Message, ModelProvider, Usage
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 
@@ -57,6 +57,11 @@ async def parse_or_repair[T: BaseModel](
         tools=[],
         max_tokens=max_tokens,
     )
+    if repair.stop_reason in TRUNCATED_STOP_REASONS:
+        raise ModelError(
+            f"The repaired reply reached the {max_tokens:,}-token output limit and was cut off.",
+            code="output_truncated",
+        )
     try:
         return output_model.model_validate(extract_json(repair.text)), repair.usage
     except (ValueError, ValidationError) as exc:

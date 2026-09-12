@@ -9,10 +9,10 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from socagents.core.config import Settings
-from socagents.core.errors import BudgetExceeded, SocAgentsError
+from socagents.core.errors import BudgetExceeded, ModelError, SocAgentsError
 from socagents.db.store import Store
 from socagents.model_gateway.pricing import Price, cost_usd
-from socagents.model_gateway.types import Message, ModelProvider
+from socagents.model_gateway.types import TRUNCATED_STOP_REASONS, Message, ModelProvider
 from socagents.providers.base import MarketDataProvider
 from socagents.runtime.budget import Budget, UsageMeter
 from socagents.runtime.states import RunStatus
@@ -220,6 +220,13 @@ class NativeLoopRuntime:
                 },
             )
             meter.check(self._budget)
+            if response.stop_reason in TRUNCATED_STOP_REASONS:
+                # A cut-off reply can hold half-formed JSON or tool calls, so none of it is used.
+                raise ModelError(
+                    f"The reply reached the {self._budget.max_tokens_per_call:,}-token output "
+                    "limit and was cut off.",
+                    code="output_truncated",
+                )
 
             if not response.tool_calls:
                 return response.text

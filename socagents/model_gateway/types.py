@@ -6,6 +6,9 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
+# Stop reasons that mean the reply was cut off at max_tokens (Anthropic, OpenAI, Gemini).
+TRUNCATED_STOP_REASONS = frozenset({"max_tokens", "length", "MAX_TOKENS"})
+
 
 class ToolSpec(BaseModel):
     name: str

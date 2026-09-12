@@ -30,11 +30,11 @@ Available now:
 
 | Command | Purpose |
 |---|---|
-| `socagents desk SYMBOL [--profile lite\|standard\|deep] [--rounds N] [-m ...] [--provider ...] [--skill NAME] [--json] [--no-live]` | run SOC Desk with a live view |
+| `socagents desk SYMBOL [--profile lite\|standard\|deep] [--rounds N] [-m ...] [--provider ...] [--skill NAME] [--full] [--json] [--no-live]` | run SOC Desk with a live view |
 | `socagents replay REF [-m ...] [--profile ...] [--rounds N] [--skill NAME\|none] [--json]` | re-run a stored desk on its recorded data and compare it with the original |
 | `socagents ask "QUESTION" [--symbol SYMBOL]` | single-agent answer |
 | `socagents brief --symbols A,B` | pre-market briefing |
-| `socagents report list` / `report show REF [--json]` | list and view stored Desk Reports (`REF` is an id or a unique prefix) |
+| `socagents report list` / `report show REF [--full] [--json]` | list and view stored Desk Reports (`REF` is an id or a unique prefix) |
 | `socagents report export REF [--format md\|json] [--out FILE]` | export a Community report: regime, key levels, and scenarios only |
 | `socagents login` / `logout` / `whoami` | connect a SocSwift member API key (stored in the OS keychain) |
 | `socagents config list\|get KEY\|set KEY VALUE` | `default_model`, `default_provider`, `default_profile`, `upsell`, `telemetry` |

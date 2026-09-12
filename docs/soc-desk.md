@@ -52,6 +52,7 @@ trigger ────────>├─ Futures Hedge *     ├──> Bull ⇄ 
 {
   "symbol": "SPX",
   "as_of": "2026-09-10T17:45:00Z",
+  "market": { "status": "open", "last_session": "2026-09-10", "last_trade": "2026-09-10T17:45:00Z" },
   "mode": "community",
   "regime": "positive gamma (estimate), mean-reverting",
   "key_levels": [
@@ -84,6 +85,10 @@ trigger ────────>├─ Futures Hedge *     ├──> Bull ⇄ 
 ```
 
 Numbers are illustrative.
+
+The terminal shows a one-screen summary: regime, analyst stances, key levels, scenarios, ideas, and dissent. `--full` adds the analyst reports, the debate, evidence ids, and the Risk Officer's notes.
+
+`as_of` is the time of the last trade in the data. When the market is closed (after hours, weekends, holidays), the report says so, and roles describe the last session and frame their scenarios for the next one.
 
 ## Units and Visibility Rules
 

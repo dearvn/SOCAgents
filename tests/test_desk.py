@@ -18,7 +18,7 @@ from socagents.desk.graph import DeskEvent, DeskGraph
 from socagents.desk.live import DeskLiveView
 from socagents.desk.models import EDUCATIONAL_LABEL, DeskReport
 from socagents.desk.render import render_report, shareable_markdown
-from socagents.desk.roles import PROFILES, parse_context, profile_roles
+from socagents.desk.roles import PROFILES, ROLES, parse_context, profile_roles
 from socagents.desk.storage import DeskStore
 from socagents.desk.structured import extract_json
 from socagents.growth import Upsell
@@ -222,19 +222,25 @@ class ReplyModel:
     provider = "test"
     model = "reply"
 
-    def __init__(self, *texts: str) -> None:
+    def __init__(self, *texts: str, stop_reason: str = "end_turn") -> None:
         self.texts = list(texts)
         self.calls = 0
+        self.stop_reason = stop_reason
+        self.max_tokens: list[int] = []
 
     async def complete(
         self, *, system: str, messages: list[Message], tools: list[ToolSpec], max_tokens: int
     ) -> ModelResponse:
         self.calls += 1
+        self.max_tokens.append(max_tokens)
         text = self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
         if callable(text):
             text = text(messages)
         return ModelResponse(
-            text=text, model=self.model, usage=Usage(input_tokens=5, output_tokens=5)
+            text=text,
+            model=self.model,
+            usage=Usage(input_tokens=5, output_tokens=5),
+            stop_reason=self.stop_reason,
         )
 
     async def aclose(self) -> None:
@@ -298,6 +304,52 @@ async def test_lead_failure_fails_the_desk(settings: Settings) -> None:
     with pytest.raises(SocAgentsError) as info:
         await graph_run(settings, scripted_models(desk_lead=ReplyModel("nope", "still nope")))
     assert info.value.code == "desk_failed"
+
+
+async def test_each_call_gets_the_roles_output_limit(settings: Settings) -> None:
+    valid = json.dumps(
+        {"regime": "r", "summary": "s", "key_levels": [], "scenarios": [], "dissent": ""}
+    )
+    lead = ReplyModel(valid)
+    await graph_run(settings, scripted_models(desk_lead=lead))
+    assert lead.max_tokens == [ROLES["desk_lead"].max_output_tokens]
+
+
+async def test_truncated_analyst_is_missing_and_not_repaired(settings: Settings) -> None:
+    flow = ReplyModel('{"stance": "bullish", "summary": "cut', stop_reason="length")
+    report = await graph_run(settings, scripted_models(flow=flow))
+    assert report.missing_roles == ["flow"]
+    assert flow.calls == 1
+
+
+async def test_truncated_lead_fails_the_desk_without_a_repair(settings: Settings) -> None:
+    lead = ReplyModel("{}", stop_reason="max_tokens")
+    with pytest.raises(SocAgentsError) as info:
+        await graph_run(settings, scripted_models(desk_lead=lead))
+    assert info.value.code == "desk_failed"
+    assert lead.calls == 1
+
+
+class PromptRecorder(ScriptedModel):
+    """The offline model, recording each call's first user message."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.prompts: list[str] = []
+
+    async def complete(self, **kwargs: Any) -> ModelResponse:
+        self.prompts.append(kwargs["messages"][0].content)
+        return await super().complete(**kwargs)
+
+
+async def test_closed_market_reaches_the_prompts_and_the_report(settings: Settings) -> None:
+    # The fixture's last trade is Thursday 2026-09-10 13:45 ET, so the market reads as closed.
+    technical = PromptRecorder()
+    report = await graph_run(settings, scripted_models(technical=technical))
+    assert report.market is not None and report.market.status == "closed"
+    assert report.market.last_session == date(2026, 9, 10)
+    assert "for the next session" in technical.prompts[0]
+    assert parse_context(technical.prompts[0])["market"]["last_session"] == "2026-09-10 (Thursday)"
 
 
 async def test_kill_switch(tmp_path: Path) -> None:
@@ -422,6 +474,24 @@ async def test_render_and_live_view(settings: Settings) -> None:
     text = out.getvalue()
     assert "done" in text and "Dealer Positioning Analyst" in text
     assert "Key levels" in text and "Educational" in text
+
+
+async def test_short_and_full_report_views(settings: Settings) -> None:
+    report = await desk(settings)
+
+    def show(full: bool) -> str:
+        out = io.StringIO()
+        Console(file=out, width=160).print(render_report(report, full=full))
+        return out.getvalue()
+
+    short, full = show(False), show(True)
+    assert "market closed · last session Thu 2026-09-10, 13:45 ET" in short
+    assert "Analysts: " in short and "Key levels" in short and "Educational" in short
+    assert f"socagents report show {report.id} --full" in short
+    assert "Debate" not in short and "Dealer Positioning Analyst" not in short
+    assert "snp_" not in short and "risk officer:" not in short
+    assert "Debate" in full and "Dealer Positioning Analyst" in full and "snp_" in full
+    assert "risk officer:" in full and "--full" not in full
 
 
 def test_extract_json() -> None:

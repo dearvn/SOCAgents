@@ -71,6 +71,17 @@ async def run(
     )
 
 
+async def test_truncated_reply_fails_the_run_without_running_its_tools(store, settings) -> None:
+    for stop_reason in ("max_tokens", "length", "MAX_TOKENS"):
+        cut = quote_call().model_copy(update={"stop_reason": stop_reason})
+        budget = Budget(max_tokens_per_call=100)
+        result = await run(FakeModel(cut, answer()), store, settings, budget)
+        assert result.status is RunStatus.FAILED
+        assert result.error is not None and result.error.code == "output_truncated"
+        assert "100-token" in result.error.message
+        assert result.snapshots == []
+
+
 async def test_scripted_run_completes_with_cited_snapshots(store, settings) -> None:
     result = await run(ScriptedModel(), store, settings)
 

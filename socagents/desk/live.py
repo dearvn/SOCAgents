@@ -91,9 +91,9 @@ class DeskLiveView:
                 ROLES[name].title if name in ROLES else name,
                 Text(row.stance, style=STANCE_STYLE.get(row.stance, "")),
                 "" if row.confidence is None else f"{row.confidence:.2f}",
-                row.activity,
+                " ".join(row.activity.split()),  # one line per role, even for long arguments
             )
-        cost = "unknown" if self.cost is None else f"${self.cost:.4f}"
+        cost = "cost n/a" if self.cost is None else f"${self.cost:.4f}"
         header = Text(
             f"SOC Desk · {self.symbol} · {self.profile} · {self.mode or '…'} mode · "
             f"tokens {self.input_tokens:,} in / {self.output_tokens:,} out · {cost} · "
