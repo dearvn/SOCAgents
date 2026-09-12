@@ -99,15 +99,13 @@ Available now:
 - Parallel tool-using agents and a structured bull/bear debate.
 - Deterministic guardrails: the risk engine decides; LLMs propose and critique.
 - Key levels checked against the numbers in the snapshots they cite.
-- `run_desk` as an MCP tool.
-- Live terminal view of the desk.
+- MCP in both directions: `run_desk` as an MCP tool, and external MCP servers as read-only desk tools.
+- Skills: strategy playbooks as `SKILL.md` files that can reference existing read-only tools but cannot add tools or code.
+- Live terminal view of the desk; replay on recorded data to compare models, prompts, or skills.
 
 Planned:
 
 - Memory and reflection: past desk calls per symbol are stored with realized outcomes.
-- External MCP servers as read-only desk tools.
-- Skills: strategy playbooks as `SKILL.md` packages that can reference existing read-only tools but cannot add tools or code.
-- Replay on stored snapshots to compare models, prompts, or skills.
 
 ## Relation to TradingAgents
 

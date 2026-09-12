@@ -57,9 +57,14 @@ def render_report(report: DeskReport) -> RenderableType:
         f"SOC Desk · {report.symbol} · {report.profile} · {report.mode} mode · data {delay} · "
         f"as of {fmt_et(report.as_of)}"
     )
+    if report.replay_of:
+        title += f" · replay of {report.replay_of}"
     parts: list[RenderableType] = [
         Panel(Text(f"Regime: {report.regime}\n\n{report.summary}"), title=title, title_align="left")
     ]
+    if report.skills:
+        names = ", ".join(f"{s.name} ({s.source})" for s in report.skills)
+        parts.append(Text(f"Skills: {names}", style="dim"))
 
     if report.key_levels:
         levels = Table(title="Key levels", title_justify="left", show_edge=False, pad_edge=False)

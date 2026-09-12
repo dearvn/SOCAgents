@@ -30,7 +30,8 @@ Available now:
 
 | Command | Purpose |
 |---|---|
-| `socagents desk SYMBOL [--profile lite\|standard\|deep] [--rounds N] [-m ...] [--provider ...] [--json] [--no-live]` | run SOC Desk with a live view |
+| `socagents desk SYMBOL [--profile lite\|standard\|deep] [--rounds N] [-m ...] [--provider ...] [--skill NAME] [--json] [--no-live]` | run SOC Desk with a live view |
+| `socagents replay REF [-m ...] [--profile ...] [--rounds N] [--skill NAME\|none] [--json]` | re-run a stored desk on its recorded data and compare it with the original |
 | `socagents ask "QUESTION" [--symbol SYMBOL]` | single-agent answer |
 | `socagents brief --symbols A,B` | pre-market briefing |
 | `socagents report list` / `report show REF [--json]` | list and view stored Desk Reports (`REF` is an id or a unique prefix) |
@@ -39,14 +40,8 @@ Available now:
 | `socagents config list\|get KEY\|set KEY VALUE` | `default_model`, `default_provider`, `default_profile`, `upsell`, `telemetry` |
 | `socagents mcp serve` | local MCP server over stdio |
 | `socagents doctor` | environment check |
-
-Planned:
-
-| Command | Purpose |
-|---|---|
-| `socagents replay DESK_RUN_ID [-m ...]` | re-run a desk on stored snapshots |
-| `socagents mcp add NAME -- COMMAND` / `mcp allow NAME TOOL` / `mcp list` / `mcp remove NAME` | external MCP servers as read-only tools |
-| `socagents skills list\|enable\|disable\|add PATH` | manage skills |
+| `socagents skills list\|show\|enable\|disable\|add PATH\|remove` | manage skills |
+| `socagents mcp add NAME -- COMMAND` / `mcp list\|show\|allow\|deny\|verify\|remove` | external MCP servers as read-only desk tools |
 
 ## Profiles
 
@@ -63,6 +58,42 @@ The Community provider has no free calendar source. To give the Event and News a
 ```json
 [{ "time": "2026-09-11T12:30:00Z", "name": "CPI", "importance": "high" }]
 ```
+
+## Replay
+
+`socagents replay REF` re-runs a stored desk on the data recorded in the original run, so a different model, profile, or skill sees exactly the same market data. Roles keep the original models unless you set them with `-m`.
+
+```bash
+socagents replay rpt_01a08e -m strategist=anthropic/<model>   # one role on another model
+socagents replay rpt_01a08e --skill none                       # the same run without skills
+```
+
+The output shows the new report and a side-by-side comparison: regime, analyst stances, key levels, ideas, dissent, model calls, and cost.
+
+- A call the original run did not make returns `not_recorded`. Replays never fetch new data.
+- Replay ideas are labeled "Replay: recorded data, not risk-checked for execution" and are never convertible.
+- Replaying a member run needs an active membership. Replays do not reconnect external MCP servers.
+
+## Skills
+
+A skill is a `SKILL.md` playbook: front matter plus Markdown guidance.
+
+```markdown
+---
+name: my-playbook
+title: My playbook
+description: Wait for a retest of the level before any idea triggers.
+applies_to: [strategist]
+tools: [get_option_quote]
+---
+Prefer a trigger on a retest of the level, with the invalidation just beyond it.
+```
+
+- `applies_to`: roles that receive the skill (`bull`, `bear`, `strategist`, `risk_officer`, `desk_lead`). `tools`: existing read-only tools the skill refers to; skills cannot add tools.
+- Official skills ship with the package: `gamma-regime-playbook`, `event-risk-checklist`, `zero-dte-long-premium`. Use one for a run with `--skill NAME`, or for every run with `skills enable NAME`.
+- `socagents skills add PATH` copies a user skill to `~/.socagents/skills/`. It stays off until `skills enable NAME`.
+- Skills over 8 KB, or with instruction-like text, attempts to override risk rules or sizing, or performance claims, are rejected.
+- Reports list the skills used with their SHA-256, and each run records them in the audit log.
 
 ## MCP Server
 
@@ -110,12 +141,22 @@ Desk Lead ▸ writing report…
 
 Trade ideas appear only in your own terminal. Exported, shared, and public reports never include them.
 
-## External MCP Servers (planned)
+## External MCP Servers
+
+Give the desk read-only tools from your own MCP servers, for example your broker's positions.
 
 ```bash
-socagents mcp add mybroker -- <broker-mcp-command>   # use read-only credentials
-socagents mcp list                                    # shows tools and their read-only annotations
-socagents mcp allow mybroker get_positions
+socagents mcp add mybroker --env BROKER_TOKEN -- npx -y @broker/mcp@1.2.3   # pinned version
+socagents mcp show mybroker                  # tools, annotations, and which are blocked
+socagents mcp allow mybroker get_positions   # nothing is exposed until you allow it
+socagents mcp verify mybroker                # compare with the approved definitions
 ```
 
-Order-placing tools are blocked even if allowed. See [Security](security.md#external-mcp-servers).
+- Use read-only credentials wherever your broker supports them.
+- Package runners (`npx`, `uvx`, `pipx run`, `docker`) must be pinned to an exact version or digest, unless you pass `--allow-unpinned`.
+- Tools whose name starts with an order verb (`place`, `submit`, `cancel`, `buy`, `sell`, `trade`, and others) are blocked even if you allow them. Tools that do not declare themselves read-only need `--yes-not-read-only`.
+- Allowed tools go to the Strategist by default (`--role` to choose). Arguments are limited to symbols, dates, and account aliases, and output is untrusted data.
+- If a server changes its tool definitions, it is disabled until you run `socagents mcp verify NAME --approve`. Changed tools must be allowed again.
+- Servers get a minimal environment plus the variables named with `--env`. Their stderr goes to `~/.socagents/logs/mcp-NAME.log`, and the configuration to `~/.socagents/mcp_servers.json`.
+
+See [Security](security.md#external-mcp-servers).

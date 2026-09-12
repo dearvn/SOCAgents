@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -22,7 +23,7 @@ from rich.text import Text
 
 from socagents import __version__
 from socagents.agents.ask import run_ask
-from socagents.agents.desk import run_desk
+from socagents.agents.desk import run_desk, run_replay
 from socagents.core.config import Settings
 from socagents.core.credentials import delete_api_key, key_source, load_api_key, save_api_key
 from socagents.core.crypto import PayloadCipher, delete_data_key
@@ -36,14 +37,28 @@ from socagents.core.userconfig import (
 )
 from socagents.db.store import Store
 from socagents.desk.live import DeskLiveView
+from socagents.desk.models import DeskReport
 from socagents.desk.render import render_report, shareable_markdown
+from socagents.desk.replay import compare_reports
 from socagents.desk.roles import PROFILES, profile_roles
 from socagents.desk.storage import DeskStore
+from socagents.external_mcp import (
+    ServerConfig,
+    add_server,
+    allow_tool,
+    clean_description,
+    deny_tool,
+    load_servers,
+    remove_server,
+    tool_status,
+    verify_server,
+)
 from socagents.growth import attributed_url
 from socagents.providers.fixture import FixtureProvider
 from socagents.runtime.native import RunResult
 from socagents.runtime.states import RunStatus
 from socagents.session import purge_member_data
+from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_skill
 from socagents.socswift_client.client import MemberInfo, MembershipError, SocSwiftClient
 
 app = typer.Typer(
@@ -55,11 +70,17 @@ app = typer.Typer(
 report_app = typer.Typer(help="View and export Desk Reports.", no_args_is_help=True)
 config_app = typer.Typer(help="Read and change settings.", no_args_is_help=True)
 mcp_app = typer.Typer(
-    help="Local MCP server for Claude Desktop and other clients.", no_args_is_help=True
+    help="Local MCP server for Claude Desktop and other clients, and external MCP servers as "
+    "read-only desk tools.",
+    no_args_is_help=True,
+)
+skills_app = typer.Typer(
+    help="Strategy playbooks (SKILL.md) that guide desk roles.", no_args_is_help=True
 )
 app.add_typer(report_app, name="report")
 app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(skills_app, name="skills")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -69,6 +90,14 @@ ProviderOption = Annotated[
     typer.Option(
         help="community (free, delayed), fixture (offline sample), or socswift "
         "(members). Default: SocSwift when logged in, else Community."
+    ),
+]
+SkillOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--skill",
+        help="Apply a skill for this run, on top of enabled ones. Repeatable. User skills must "
+        "be enabled first.",
     ),
 ]
 ModelOption = Annotated[
@@ -242,6 +271,7 @@ def desk(
         ),
     ] = None,
     provider: ProviderOption = None,
+    skill: SkillOption = None,
     as_json: Annotated[bool, typer.Option("--json", help="Print the full report as JSON.")] = False,
     live: Annotated[bool, typer.Option("--live/--no-live", help="Live view while running.")] = True,
 ) -> None:
@@ -268,6 +298,7 @@ def desk(
             provider_name=provider,
             settings=settings,
             on_event=view.handle,
+            skills=skill or [],
         )
 
     try:
@@ -278,13 +309,82 @@ def desk(
             report = asyncio.run(go())
     except SocAgentsError as exc:
         _fail(exc)
-    from socagents.desk.models import DeskReport
-
     assert isinstance(report, DeskReport)
     if as_json:
         typer.echo(report.model_dump_json(indent=2))
     else:
         console.print(render_report(report))
+
+
+@app.command()
+def replay(
+    ref: Annotated[str, typer.Argument(help="Desk Report id, desk run id, or a unique prefix.")],
+    model: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="PROVIDER/MODEL for every role, or ROLE=PROVIDER/MODEL for one role. Roles "
+            "you do not set keep the original run's model.",
+        ),
+    ] = None,
+    profile: Annotated[
+        str | None, typer.Option(help="Profile for the replay. Default: the original's.")
+    ] = None,
+    rounds: Annotated[
+        int | None, typer.Option(min=0, max=3, help="Debate rounds. Default: the original's.")
+    ] = None,
+    skill: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--skill",
+            help="Skills for the replay, replacing the original's. Repeatable. "
+            "`--skill none` replays without skills.",
+        ),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the result as JSON.")] = False,
+) -> None:
+    """Re-run a desk on the data recorded for an earlier run, e.g. with another model."""
+    settings = _settings()
+
+    async def go() -> tuple[DeskReport, DeskReport]:
+        return await run_replay(
+            ref=ref,
+            model_args=model or [],
+            settings=settings,
+            profile_name=profile,
+            rounds=rounds,
+            skills=skill,
+        )
+
+    try:
+        if not as_json and console.is_terminal:
+            with console.status("Replaying on recorded data…"):
+                original, result = asyncio.run(go())
+        else:
+            original, result = asyncio.run(go())
+    except SocAgentsError as exc:
+        _fail(exc)
+    rows = compare_reports(original, result)
+    if as_json:
+        comparison = [{"field": f, "original": a, "replay": b} for f, a, b in rows]
+        payload = {
+            "original": original.id,
+            "replay": result.model_dump(mode="json"),
+            "comparison": comparison,
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+    console.print(render_report(result))
+    table = Table(
+        title=f"Replay of {original.id}", title_justify="left", show_edge=False, pad_edge=False
+    )
+    table.add_column("", no_wrap=True)
+    table.add_column("original")
+    table.add_column("replay")
+    for field_name, before, after in rows:
+        table.add_row(field_name, escape(before), escape(after))
+    console.print(table)
 
 
 # reports
@@ -475,6 +575,120 @@ def config_set(key: str, value: str) -> None:
     console.print(f"{key} = {getattr(config, key)} ({path})")
 
 
+# skills
+
+
+def _skill(settings: Settings, name: str) -> Skill:
+    available, _ = discover(settings.home)
+    skill = available.get(name)
+    if skill is None:
+        _fail(ConfigError(f"Unknown skill {name!r}. See `socagents skills list`."), 2)
+    return skill
+
+
+@skills_app.command("list")
+def skills_list() -> None:
+    """List official and user skills, and which are enabled."""
+    settings = _settings()
+    enabled = _config(settings).skills
+    available, problems = discover(settings.home)
+    table = Table(show_edge=False, pad_edge=False)
+    for column in ("skill", "source", "enabled", "applies to", "status"):
+        table.add_column(column, no_wrap=column == "skill")
+    for skill in available.values():
+        issues = lint(skill)
+        table.add_row(
+            skill.name,
+            skill.source,
+            "yes" if skill.name in enabled else "no",
+            ", ".join(skill.manifest.applies_to),
+            "rejected: " + "; ".join(issues) if issues else "ok",
+        )
+    console.print(table)
+    for problem in problems:
+        console.print(Text(problem, style="yellow"))
+
+
+@skills_app.command("show")
+def skills_show(name: str) -> None:
+    """Show a skill's manifest and guidance."""
+    skill = _skill(_settings(), name)
+    manifest = skill.manifest
+    header = (
+        f"{manifest.title} · {skill.source} · v{manifest.version} · "
+        f"sha256:{skill.content_hash[:12]}\n{manifest.description}\n"
+        f"Applies to: {', '.join(manifest.applies_to)}. "
+        f"Tools referenced: {', '.join(manifest.tools) or 'none'}.\n\n"
+    )
+    console.print(Panel(Text(header + skill.body), title=skill.name, title_align="left"))
+
+
+@skills_app.command("enable")
+def skills_enable(name: str) -> None:
+    """Enable a skill for every desk run."""
+    settings = _settings()
+    skill = _skill(settings, name)
+    issues = lint(skill)
+    if issues:
+        _fail(ConfigError(f"Skill {name} was rejected: {'; '.join(issues)}."), 2)
+    config = _config(settings)
+    if name not in config.skills:
+        config = config.model_copy(update={"skills": [*config.skills, name]})
+        save_user_config(settings.home, config)
+    if skill.source == "user":
+        console.print(
+            "[yellow]User skill: not reviewed by SOCAgents maintainers. It is guidance only, "
+            "and the risk engine ignores it.[/yellow]"
+        )
+    console.print(f"Enabled {name}. It applies to: {', '.join(skill.manifest.applies_to)}.")
+
+
+@skills_app.command("disable")
+def skills_disable(name: str) -> None:
+    """Stop applying a skill."""
+    settings = _settings()
+    config = _config(settings)
+    if name in config.skills:
+        config = config.model_copy(update={"skills": [s for s in config.skills if s != name]})
+        save_user_config(settings.home, config)
+    console.print(f"Disabled {name}.")
+
+
+@skills_app.command("add")
+def skills_add(
+    path: Annotated[Path, typer.Argument(help="A SKILL.md file, or a folder containing one.")],
+) -> None:
+    """Add a user skill from a local file. It stays disabled until you enable it."""
+    settings = _settings()
+    try:
+        skill = add_user_skill(settings.home, path)
+    except SocAgentsError as exc:
+        _fail(exc, 2)
+    console.print(
+        f"Added user skill {skill.name} (disabled). Review it with `socagents skills show "
+        f"{skill.name}`, then `socagents skills enable {skill.name}`."
+    )
+
+
+@skills_app.command("remove")
+def skills_remove(name: str) -> None:
+    """Delete a user skill."""
+    settings = _settings()
+    try:
+        removed = remove_user_skill(settings.home, name)
+    except SocAgentsError as exc:
+        _fail(exc, 2)
+    if not removed:
+        _fail(ConfigError(f"No user skill named {name!r}."), 2)
+    config = _config(settings)
+    if name in config.skills:
+        save_user_config(
+            settings.home,
+            config.model_copy(update={"skills": [s for s in config.skills if s != name]}),
+        )
+    console.print(f"Removed {name}.")
+
+
 # mcp
 
 
@@ -491,6 +705,179 @@ def mcp_serve() -> None:
             2,
         )
     serve()
+
+
+def _print_tools(server: ServerConfig) -> None:
+    table = Table(
+        title=f"{server.name} tools", title_justify="left", show_edge=False, pad_edge=False
+    )
+    for column in ("tool", "allowed", "status", "description"):
+        table.add_column(column, no_wrap=column == "tool")
+    for tool in server.tools:
+        table.add_row(
+            escape(tool.name),
+            "yes" if tool.name in server.allowlist else "no",
+            tool_status(tool),
+            escape(clean_description(tool.description)[:80]),
+        )
+    console.print(table)
+
+
+@mcp_app.command("add")
+def mcp_add(
+    name: Annotated[str, typer.Argument(help="Short name for the server, e.g. mybroker.")],
+    command: Annotated[
+        list[str], typer.Argument(help="The command that starts the server, after --.")
+    ],
+    env: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--env",
+            help="Environment variable to pass to the server, by name. Its value is read when "
+            "the server starts and never stored. Repeatable.",
+        ),
+    ] = None,
+    role: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--role", help="Desk role that gets the allowed tools. Repeatable. Default: strategist."
+        ),
+    ] = None,
+    allow_unpinned: Annotated[
+        bool,
+        typer.Option("--allow-unpinned", help="Accept a package not pinned to an exact version."),
+    ] = False,
+) -> None:
+    """Add an external MCP server over stdio. No tool is exposed until you allow it."""
+    settings = _settings()
+    try:
+        server = asyncio.run(
+            add_server(
+                settings.home,
+                name,
+                command[0],
+                command[1:],
+                env or [],
+                role,
+                allow_unpinned=allow_unpinned,
+            )
+        )
+    except SocAgentsError as exc:
+        _fail(exc)
+    _print_tools(server)
+    console.print(
+        f"Added {name} ({escape(server.package_ref)}). No tool is exposed yet. Allow read tools "
+        f"by name: socagents mcp allow {name} TOOL"
+    )
+    console.print(
+        "[yellow]Use read-only credentials for broker servers wherever the broker supports "
+        "them.[/yellow]"
+    )
+
+
+@mcp_app.command("list")
+def mcp_list() -> None:
+    """List external MCP servers and their allowed tools."""
+    try:
+        servers = load_servers(_settings().home)
+    except SocAgentsError as exc:
+        _fail(exc, 2)
+    if not servers:
+        console.print("No external MCP servers. Add one: socagents mcp add NAME -- COMMAND")
+        return
+    table = Table(show_edge=False, pad_edge=False)
+    for column in ("server", "status", "package", "roles", "allowed tools"):
+        table.add_column(column, no_wrap=column == "server")
+    for server in servers.values():
+        package = server.package_ref + ("" if server.pinned else " (unpinned)")
+        table.add_row(
+            server.name,
+            server.status,
+            escape(package),
+            ", ".join(server.roles),
+            ", ".join(server.allowlist) or "none",
+        )
+    console.print(table)
+
+
+def _servers_call[T](fn: Callable[[], T]) -> T:
+    try:
+        return fn()
+    except SocAgentsError as exc:
+        _fail(exc)
+
+
+@mcp_app.command("show")
+def mcp_show(name: str) -> None:
+    """Show a server's tools, their annotations, and which are allowed."""
+    servers = _servers_call(lambda: load_servers(_settings().home))
+    if name not in servers:
+        _fail(ConfigError(f"No external MCP server named {name!r}."), 2)
+    _print_tools(servers[name])
+
+
+@mcp_app.command("allow")
+def mcp_allow(
+    name: str,
+    tool: str,
+    yes_not_read_only: Annotated[
+        bool,
+        typer.Option(
+            "--yes-not-read-only",
+            help="Confirm a tool that does not declare itself read-only.",
+        ),
+    ] = False,
+) -> None:
+    """Expose one tool of a server to the desk. Order tools are always blocked."""
+    home = _settings().home
+    _servers_call(lambda: allow_tool(home, name, tool, confirm=yes_not_read_only))
+    console.print(f"Allowed {name}.{tool}. Its output is treated as untrusted data.")
+
+
+@mcp_app.command("deny")
+def mcp_deny(name: str, tool: str) -> None:
+    """Stop exposing a tool."""
+    home = _settings().home
+    _servers_call(lambda: deny_tool(home, name, tool))
+    console.print(f"Removed {name}.{tool} from the allowlist.")
+
+
+@mcp_app.command("verify")
+def mcp_verify(
+    name: str,
+    approve: Annotated[
+        bool, typer.Option("--approve", help="Accept the server's current tool definitions.")
+    ] = False,
+) -> None:
+    """Compare a server's tools with the approved definitions."""
+    home = _settings().home
+    try:
+        server, changes = asyncio.run(verify_server(home, name, approve=approve))
+    except SocAgentsError as exc:
+        _fail(exc)
+    if not changes:
+        console.print(f"{name}: tool definitions unchanged. Status: {server.status}.")
+        return
+    for line in changes:
+        console.print(escape(line))
+    if approve:
+        console.print(
+            f"Approved the new definitions. Changed tools left the allowlist; allow them again "
+            f"if you still want them. Status: {server.status}."
+        )
+    else:
+        console.print(
+            f"[yellow]{name} is disabled until you review and approve: "
+            f"socagents mcp verify {name} --approve[/yellow]"
+        )
+
+
+@mcp_app.command("remove")
+def mcp_remove(name: str) -> None:
+    """Remove an external MCP server."""
+    home = _settings().home
+    _servers_call(lambda: remove_server(home, name))
+    console.print(f"Removed {name}.")
 
 
 # doctor

@@ -14,6 +14,7 @@ Stance = Literal["bullish", "bearish", "neutral"]
 
 DISCLAIMER = "Not investment advice. AI can be wrong."
 EDUCATIONAL_LABEL = "Educational: delayed data, not risk-checked for execution."
+REPLAY_LABEL = "Replay: recorded data, not risk-checked for execution."
 FOOTER = "Made with SOCAgents · https://github.com/dearvn/SOCAgents"
 
 
@@ -170,6 +171,12 @@ class UsageSummary(BaseModel):
         self.cost_usd = None if cost is None or self.cost_usd is None else self.cost_usd + cost
 
 
+class SkillRef(BaseModel):
+    name: str
+    source: str
+    sha256: str
+
+
 class DeskReport(BaseModel):
     id: str
     desk_run_id: str
@@ -193,6 +200,8 @@ class DeskReport(BaseModel):
     models: dict[str, str] = Field(default_factory=dict)
     usage: UsageSummary = Field(default_factory=UsageSummary)
     created_at: datetime
+    replay_of: str | None = None
+    skills: list[SkillRef] = Field(default_factory=list)
     disclaimer: str = DISCLAIMER
 
     def shareable_view(self) -> dict[str, Any]:

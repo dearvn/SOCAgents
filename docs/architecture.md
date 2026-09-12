@@ -79,7 +79,7 @@ class MarketDataProvider(Protocol):
 ## Data Snapshots
 
 - Every tool result is stored as an immutable snapshot with `as_of`, `mode`, `trust`, and `delayed`.
-- Reports cite snapshot ids, which makes every run replayable.
+- Reports cite snapshot ids, which makes every run replayable: `socagents replay` serves the recorded snapshots instead of live data.
 - Member snapshots stored locally follow the retention rule in [Security](security.md#member-data-in-the-cli).
 
 ## Storage

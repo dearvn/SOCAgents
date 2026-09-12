@@ -34,13 +34,17 @@ We assume:
 - **Annotations.** Tools declaring `readOnlyHint: true` can be allowed normally; others need an extra confirmation. Annotations are self-declared, so they never replace the allowlist.
 - **Verb deny list (backstop).** A tool is blocked even if allowed when the leading verb of its name is one of `place, submit, send, cancel, replace, modify, amend, close, flatten, liquidate, transfer, withdraw, deposit, buy, sell, execute, exercise, trade`.
 - **Change detection.** Tool definitions are hashed when approved; any change disables the server until you re-approve.
-- **Isolation.** Descriptions and output are treated as untrusted data, size-capped, and never placed in the system policy. Arguments are limited to symbols, dates, and account aliases. Servers run as subprocesses with a minimal environment.
+- **Pinning.** Package runners must name an exact version or digest; the CLI records what each server runs.
+- **Isolation.** Descriptions and output are treated as untrusted data, size-capped, and never placed in the system policy. Arguments are limited to symbols, dates, and account aliases, so no data can be sent out. Servers run as subprocesses with a minimal environment plus the variables you name.
+- **Limits.** Per-call timeouts and a per-run call limit for each server; every call is audited and snapshotted as untrusted.
 
 ## Skills
 
 - A skill is a `SKILL.md` playbook. It can reference existing read-only tools but cannot add tools, network access, or code.
 - Skills are guidance under the system policy, never system instructions. The risk engine ignores skills.
-- Official skills are reviewed and signed; community skills are reviewed before listing; user skills stay local. Community and user skills are off until you enable them.
+- Official skills ship inside the package and are reviewed by maintainers. User skills stay local and are off until you enable them. A community gallery with review before listing is planned.
+- Every skill is checked when it is loaded: size limit, and rejection of instruction-like text, attempts to override risk rules or sizing, and performance claims. Its SHA-256 is recorded in the report and the audit log of every run.
+- Skill text reaches a role's context as data, never its system policy.
 
 ## Member Data in the CLI
 

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from socagents.core.errors import ConfigError
 
@@ -21,6 +21,7 @@ class UserConfig(BaseModel):
     default_provider: Literal["community", "fixture", "socswift"] | None = None
     default_model: str | None = None
     default_profile: Literal["lite", "standard", "deep"] = "standard"
+    skills: list[str] = Field(default_factory=list)
 
 
 def load_user_config(home: Path) -> UserConfig:
@@ -46,7 +47,9 @@ def set_config_value(config: UserConfig, key: str, raw: str) -> UserConfig:
             f"Unknown setting {key!r}. Settings: {', '.join(UserConfig.model_fields)}."
         )
     value: object = raw
-    if raw.lower() in {"none", "null", ""}:
+    if key == "skills":
+        value = [s.strip() for s in raw.split(",") if s.strip()]
+    elif raw.lower() in {"none", "null", ""}:
         value = None
     elif raw.lower() in {"true", "on", "yes", "1"}:
         value = True

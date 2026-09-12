@@ -22,6 +22,7 @@ from socagents.core.timeutil import ET, utcnow
 from socagents.db.store import Store
 from socagents.desk.models import (
     EDUCATIONAL_LABEL,
+    REPLAY_LABEL,
     AnalystReport,
     CritiqueOutput,
     DataFreshness,
@@ -32,6 +33,7 @@ from socagents.desk.models import (
     IdeaRiskCheck,
     LeadOutput,
     ReviewedIdea,
+    SkillRef,
     StrategistOutput,
     UsageSummary,
 )
@@ -47,9 +49,10 @@ from socagents.runtime.budget import Budget
 from socagents.runtime.native import NativeLoopRuntime
 from socagents.runtime.states import RunStatus
 from socagents.session import Session
+from socagents.skills import Skill
 from socagents.tools.catalog import registry_for
-from socagents.tools.gateway import SnapshotRef, ToolGateway
-from socagents.tools.sdk import ToolContext
+from socagents.tools.gateway import RecordedData, SnapshotRef, ToolGateway
+from socagents.tools.sdk import Tool, ToolContext
 
 PREORDER_ENTITLEMENT = "execution_preorder"
 MAX_IDEAS = 2
@@ -76,7 +79,15 @@ class DeskGraph:
         on_event: EventSink | None = None,
         risk_profile: RiskProfile | None = None,
         max_seconds: float = 900.0,
+        replay: RecordedData | None = None,
+        replay_of: str | None = None,
+        skills: list[Skill] | None = None,
+        external_tools: dict[str, list[Tool[Any, Any]]] | None = None,
     ) -> None:
+        self._replay = replay
+        self._replay_of = replay_of
+        self._skills = skills or []
+        self._external_tools = external_tools or {}
         self._session = session
         self._settings = session.settings
         self._store = store
@@ -130,7 +141,26 @@ class DeskGraph:
             mode=mode,
             models={r: f"{self._models[r].provider}/{self._models[r].model}" for r in roles},
         )
-        self._emit("desk.started", symbol=symbol, profile=profile.name, mode=mode, roles=roles)
+        for skill in self._skills:
+            self._store.audit(
+                actor="desk",
+                action="skill.applied",
+                detail={
+                    "desk_run_id": self._desk_run_id,
+                    "skill": skill.name,
+                    "source": skill.source,
+                    "sha256": skill.content_hash,
+                    "applies_to": skill.manifest.applies_to,
+                },
+            )
+        self._emit(
+            "desk.started",
+            symbol=symbol,
+            profile=profile.name,
+            mode=mode,
+            roles=roles,
+            skills=[s.name for s in self._skills],
+        )
         try:
             async with asyncio.timeout(self._max_seconds):
                 report = await self._run(profile, rounds, roles)
@@ -299,6 +329,10 @@ class DeskGraph:
             models={r: f"{self._models[r].provider}/{self._models[r].model}" for r in roles},
             usage=self._usage,
             created_at=utcnow(),
+            replay_of=self._replay_of,
+            skills=[
+                SkillRef(name=s.name, source=s.source, sha256=s.content_hash) for s in self._skills
+            ],
         )
         self._desk_store.save_report(report)
         return report
@@ -312,7 +346,9 @@ class DeskGraph:
             input={"desk_run_id": self._desk_run_id},
         )
         store.transition_run(run_id, RunStatus.RUNNING)
-        gateway = ToolGateway(registry_for(["get_quote"]), store, self._settings)
+        gateway = ToolGateway(
+            registry_for(["get_quote"]), store, self._settings, replay=self._replay
+        )
         ctx = ToolContext(
             run_id=run_id,
             provider=self._session.provider,
@@ -382,7 +418,10 @@ class DeskGraph:
         role = ROLES[name]
         model = self._models[name]
         tool_names = role.tools + (role.member_tools if self._session.is_member else ())
-        gateway = ToolGateway(registry_for(tool_names), self._store, self._settings)
+        registry = registry_for(tool_names)
+        for tool in self._external_tools.get(name, []):
+            registry.register(tool)
+        gateway = ToolGateway(registry, self._store, self._settings, replay=self._replay)
         runtime = NativeLoopRuntime(
             model=model,
             gateway=gateway,
@@ -397,8 +436,15 @@ class DeskGraph:
             role=name,
             observer=self._observe,
         )
+        applied = [s for s in self._skills if name in s.manifest.applies_to]
+        if applied:
+            context = {**context, "skills": [s.context_entry() for s in applied]}
         system = system_prompt(
-            role, symbol=self._symbol, mode=self._mode, output_model=output_model
+            role,
+            symbol=self._symbol,
+            mode=self._mode,
+            output_model=output_model,
+            with_skills=bool(applied),
         )
         self._emit("role.started", name)
         result = await runtime.run(
@@ -460,9 +506,8 @@ class DeskGraph:
 
     def _review(self, ideas: list[DeskIdea]) -> list[ReviewedIdea]:
         freshness = self._freshness()
-        check_mode = (
-            "execution" if self._mode == "member" and not freshness.delayed else "educational"
-        )
+        live = self._mode == "member" and not freshness.delayed and self._replay is None
+        check_mode = "execution" if live else "educational"
         ctx = RiskContext(
             today=self._as_of.astimezone(ET).date(),
             check_mode=check_mode,
@@ -514,12 +559,19 @@ class DeskGraph:
                     ),
                     convertible=convertible,
                     not_convertible_reason=reason,
-                    label=EDUCATIONAL_LABEL if decision.check_mode == "educational" else None,
+                    label=self._label(decision.check_mode),
                 )
             )
         return reviewed
 
+    def _label(self, check_mode: str) -> str | None:
+        if self._replay is not None:
+            return REPLAY_LABEL
+        return EDUCATIONAL_LABEL if check_mode == "educational" else None
+
     def _convertible(self, idea: DeskIdea, decision: RiskDecision) -> tuple[bool, str | None]:
+        if self._replay is not None:
+            return False, "Replays compare models and prompts on recorded data; never convertible."
         member = self._session.member
         if self._mode != "member" or member is None:
             return False, "Community ideas are educational and never convertible."

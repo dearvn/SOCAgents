@@ -48,7 +48,9 @@ Code map:
 
 | Path | What it holds |
 |---|---|
-| `socagents/desk/` | SOC Desk: roles and profiles, orchestrator, report models, level verification, storage, rendering |
+| `socagents/desk/` | SOC Desk: roles and profiles, orchestrator, report models, level verification, storage, replay, rendering |
+| `socagents/skills/` | skills loader and review checks; official playbooks in `official/<name>/SKILL.md` |
+| `socagents/external_mcp.py` | external MCP servers as read-only desk tools (pinning, allowlist, change detection) |
 | `socagents/risk/` | deterministic risk engine (pure functions, exhaustively tested) |
 | `socagents/analytics/` | GEX estimate, flow estimate, and technicals (pure functions) |
 | `socagents/tools/` | tool SDK, registry, gateway (validation, kill switches, membership, audit, snapshots), research and member tools |
