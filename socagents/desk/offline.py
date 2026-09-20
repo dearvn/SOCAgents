@@ -21,7 +21,7 @@ Composer = Callable[[str, dict[str, Any], dict[str, list[Result]]], dict[str, An
 _ANALYST_PLANS: dict[str, list[tuple[str, str]]] = {
     "dealer_positioning": [("socswift_gex", "symbol"), ("get_gex_estimate", "symbol")],
     "flow": [("socswift_flow", "symbol"), ("get_flow_estimate", "symbol")],
-    "technical": [("get_technicals", "symbol")],
+    "technical": [("get_technicals", "symbol"), ("get_regime_estimate", "symbol")],
     "event_news": [("get_headlines", "symbol"), ("get_event_calendar", "")],
     "futures_hedge": [("socswift_hedge_flow", "family")],
 }
@@ -188,13 +188,21 @@ def _technical(role: str, ctx: dict[str, Any], results: dict[str, list[Result]])
         + _level(d["session_low"], "session low", snap)
     )
     signals = [{"name": "trend", "value": d["trend"], "evidence": [snap]}]
+    evidence = [snap]
+    regime_found = _first(results, "get_regime_estimate")
+    if regime_found is not None:
+        regime_data, regime_snap = regime_found
+        signals.append(
+            {"name": "predicted_regime", "value": regime_data["regime"], "evidence": [regime_snap]}
+        )
+        evidence.append(regime_snap)
     return _report(
         stance,
         0.55 if stance != "neutral" else 0.4,
         summary,
         levels=levels,
         signals=signals,
-        evidence=[snap],
+        evidence=evidence,
     )
 
 

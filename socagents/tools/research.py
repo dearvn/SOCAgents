@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 from socagents.analytics.flow import FlowEstimate, estimate_flow, mid_price
 from socagents.analytics.gex import GexEstimate, estimate_gex
+from socagents.analytics.regime import REGIME_MODEL_FILENAME, RegimeClassifier, build_features
 from socagents.analytics.technicals import Technicals, compute_technicals
+from socagents.core.config import Settings
 from socagents.core.errors import ProviderError
 from socagents.core.market import live_expirations
 from socagents.providers.base import EconomicEvent
@@ -161,6 +163,50 @@ async def get_option_quote(args: OptionQuoteIn, ctx: ToolContext) -> OptionQuote
     )
 
 
+# get_regime_estimate
+
+
+class RegimeIn(_Input):
+    symbol: Symbol
+    interval: Literal["1m", "5m", "15m"] = "5m"
+    max_dte: int = Field(default=30, ge=0, le=90)
+
+
+class RegimeOut(_Output):
+    symbol: str
+    regime: Literal["trending", "mean_reverting"]
+    confidence: float
+    gamma_regime: Literal["positive", "negative"]
+    method: str = "online-classifier-v1"
+
+
+async def get_regime_estimate(args: RegimeIn, ctx: ToolContext) -> RegimeOut:
+    chain = await ctx.provider.option_chain(args.symbol)
+    series = await ctx.provider.bars(args.symbol, args.interval, 390)
+    gex = await asyncio.to_thread(estimate_gex, chain, max_dte=args.max_dte)
+    flow = estimate_flow(chain, max_dte=args.max_dte)
+
+    path = Settings.from_env().home / REGIME_MODEL_FILENAME
+    model = RegimeClassifier.load(path)
+    model.maybe_learn(args.symbol, series.bars)  # resolve any prior pending example first
+
+    features = build_features(gex, flow, series.bars)
+    regime, confidence = model.predict(features)
+    anchor_ts = series.bars[-1].ts if series.bars else series.as_of
+    model.observe(args.symbol, features, anchor_ts)
+    model.save(path)
+
+    return RegimeOut(
+        source=series.source,
+        as_of=series.as_of,
+        delayed_sec=series.delayed_sec,
+        symbol=args.symbol.upper(),
+        regime=regime,
+        confidence=round(confidence, 4),
+        gamma_regime=gex.regime,
+    )
+
+
 # get_headlines (untrusted)
 
 
@@ -287,6 +333,19 @@ EVENTS_TOOL: Tool[EventsIn, EventsOut] = Tool(
     handler=get_event_calendar,
 )
 
+REGIME_TOOL: Tool[RegimeIn, RegimeOut] = Tool(
+    name="get_regime_estimate",
+    description=(
+        "Online classifier estimate of whether the symbol is trending or mean-reverting, from "
+        "dealer gamma regime, options flow, and recent bars. Research-track: an early, "
+        "unvalidated signal, not a substitute for the gamma regime call."
+    ),
+    input_model=RegimeIn,
+    output_model=RegimeOut,
+    handler=get_regime_estimate,
+    timeout_s=30.0,
+)
+
 RESEARCH_TOOLS = (
     GEX_TOOL,
     TECHNICALS_TOOL,
@@ -294,4 +353,5 @@ RESEARCH_TOOLS = (
     OPTION_QUOTE_TOOL,
     HEADLINES_TOOL,
     EVENTS_TOOL,
+    REGIME_TOOL,
 )

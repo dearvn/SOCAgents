@@ -35,7 +35,12 @@ ROLES: dict[str, Role] = {
             name="dealer_positioning",
             title="Dealer Positioning Analyst",
             kind="analyst",
-            tools=("get_quote", "get_gex_estimate", "get_option_chain_summary"),
+            tools=(
+                "get_quote",
+                "get_gex_estimate",
+                "get_option_chain_summary",
+                "get_regime_estimate",
+            ),
             member_tools=("socswift_gex",),
             instructions=(
                 "Determine the dealer gamma regime, the call wall, the put wall, and the "
@@ -66,7 +71,7 @@ ROLES: dict[str, Role] = {
             name="technical",
             title="Technical Analyst",
             kind="analyst",
-            tools=("get_technicals", "get_bars"),
+            tools=("get_technicals", "get_bars", "get_regime_estimate"),
             instructions=(
                 "Assess trend, momentum, VWAP, and the session and opening-range levels."
             ),
