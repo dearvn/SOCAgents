@@ -135,9 +135,13 @@ Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` t
 
 ## Research Track: Continual Learning
 
-Markets are non-stationary — a model trained once decays as regimes shift. We're exploring continual/online learning so desk roles (analysts, strategist) adapt to new data without retraining from scratch or forgetting prior regimes.
+Markets are non-stationary — a model trained once decays as regimes shift. `get_regime_estimate` is a small online classifier (predict-now / learn-later) that guesses whether a symbol is trending or mean-reverting, then scores its own past guess once the outcome is knowable and learns from it — no retraining pipeline, no shared model between users. The Dealer Positioning and Technical analysts cite it as evidence like any other tool.
 
-This is scoped to a single instance, not shared across users. Unlike positive-sum domains such as fraud detection, pooling trading signals across users degrades their value as the market arbitrages them away. Early-stage research, not part of a shipped profile or roadmap phase yet.
+Track how it's doing with `socagents regime status`:
+
+<img src="docs/assets/regime-status.svg" alt="socagents regime status: examples learned, rolling accuracy, and a ✓/✗ sparkline of recent outcomes" width="640">
+
+This is scoped to a single instance, not shared across users. Unlike positive-sum domains such as fraud detection, pooling trading signals across users degrades their value as the market arbitrages them away. Early-stage research: the label heuristic behind it is an unvalidated placeholder, not a proven trading edge — treat it the same way as the GEX/flow "estimate" labels, not part of a shipped profile or roadmap phase yet.
 
 ## Documentation
 

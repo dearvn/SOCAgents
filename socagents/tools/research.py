@@ -193,7 +193,7 @@ async def get_regime_estimate(args: RegimeIn, ctx: ToolContext) -> RegimeOut:
     features = build_features(gex, flow, series.bars)
     regime, confidence = model.predict(features)
     anchor_ts = series.bars[-1].ts if series.bars else series.as_of
-    model.observe(args.symbol, features, anchor_ts)
+    model.observe(args.symbol, features, anchor_ts, regime)
     model.save(path)
 
     return RegimeOut(

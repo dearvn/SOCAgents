@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import pickle
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -33,12 +34,21 @@ METHOD = "online-classifier-v1"
 LOOKBACK_BARS = 20  # how far back to look when building features
 HORIZON_BARS = 12  # how far forward to look before an outcome/label is knowable (1h on 5m bars)
 REGIME_MODEL_FILENAME = "regime_model.pkl"
+HISTORY_MAXLEN = 50  # how many resolved outcomes the rolling accuracy is computed over
 
 
 @dataclass
 class PendingExample:
     features: dict[str, float]
     anchor_ts: datetime  # last bar's timestamp at the moment observe() was called
+    predicted_regime: Regime  # what predict() returned at observe() time, for scoring later
+
+
+@dataclass
+class Outcome:
+    predicted_regime: Regime
+    actual_regime: Regime
+    correct: bool
 
 
 class RegimeClassifier:
@@ -55,10 +65,31 @@ class RegimeClassifier:
         )
         self._n_learned = 0
         self._pending: dict[str, PendingExample] = {}
+        self._history: deque[Outcome] = deque(maxlen=HISTORY_MAXLEN)
 
     @property
     def is_fit(self) -> bool:
         return self._n_learned > 0
+
+    @property
+    def n_learned(self) -> int:
+        return self._n_learned
+
+    @property
+    def pending_symbols(self) -> list[str]:
+        return sorted(self._pending)
+
+    @property
+    def recent_outcomes(self) -> list[Outcome]:
+        """Up to the last `HISTORY_MAXLEN` resolved predict/learn cycles, oldest first."""
+        return list(self._history)
+
+    @property
+    def accuracy(self) -> float | None:
+        """Rolling accuracy over `recent_outcomes`, or None if nothing has resolved yet."""
+        if not self._history:
+            return None
+        return sum(o.correct for o in self._history) / len(self._history)
 
     def predict(self, features: dict[str, float]) -> tuple[Regime, float]:
         if not self.is_fit:
@@ -68,14 +99,18 @@ class RegimeClassifier:
         regime: Regime = "trending" if p_trend >= 0.5 else "mean_reverting"
         return regime, max(p_trend, 1 - p_trend)
 
-    def observe(self, symbol: str, features: dict[str, float], anchor_ts: datetime) -> None:
-        """Register this call's features as the (sole) pending example for `symbol`.
+    def observe(
+        self, symbol: str, features: dict[str, float], anchor_ts: datetime, predicted_regime: Regime
+    ) -> None:
+        """Register this call's prediction as the (sole) pending example for `symbol`.
 
         Overwrites any prior unresolved pending example for the same symbol. This is a
         deliberate simplification (one slot per symbol, not a queue) — acceptable for a
         research-track MVP; see the module-level limitation note in the implementation plan.
         """
-        self._pending[symbol] = PendingExample(features=features, anchor_ts=anchor_ts)
+        self._pending[symbol] = PendingExample(
+            features=features, anchor_ts=anchor_ts, predicted_regime=predicted_regime
+        )
 
     def maybe_learn(self, symbol: str, bars: list[Bar], horizon_bars: int = HORIZON_BARS) -> None:
         """Resolve `symbol`'s pending example if enough new bars have arrived, and learn from it."""
@@ -88,6 +123,13 @@ class RegimeClassifier:
         # river's LogisticRegression is binary-only: learn/predict on bool, not the label string.
         self._pipeline.learn_one(pending.features, label == "trending")
         self._n_learned += 1
+        self._history.append(
+            Outcome(
+                predicted_regime=pending.predicted_regime,
+                actual_regime=label,
+                correct=pending.predicted_regime == label,
+            )
+        )
         del self._pending[symbol]
 
     def save(self, path: Path) -> None:

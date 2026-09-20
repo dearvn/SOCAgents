@@ -24,6 +24,7 @@ from rich.text import Text
 from socagents import __version__
 from socagents.agents.ask import run_ask
 from socagents.agents.desk import run_desk, run_replay
+from socagents.analytics.regime import REGIME_MODEL_FILENAME, RegimeClassifier
 from socagents.core.config import Settings
 from socagents.core.credentials import delete_api_key, key_source, load_api_key, save_api_key
 from socagents.core.crypto import PayloadCipher, delete_data_key
@@ -77,10 +78,15 @@ mcp_app = typer.Typer(
 skills_app = typer.Typer(
     help="Strategy playbooks (SKILL.md) that guide desk roles.", no_args_is_help=True
 )
+regime_app = typer.Typer(
+    help="Research track: the online regime classifier's learning status.",
+    no_args_is_help=True,
+)
 app.add_typer(report_app, name="report")
 app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(skills_app, name="skills")
+app.add_typer(regime_app, name="regime")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -889,6 +895,50 @@ def mcp_remove(name: str) -> None:
 
 
 # doctor
+
+
+@regime_app.command("status")
+def regime_status() -> None:
+    """Learning status of the online regime classifier: examples learned, rolling accuracy,
+    and outcomes still awaiting resolution. Research track: see README's "Research Track:
+    Continual Learning"."""
+    settings = _settings()
+    path = settings.home / REGIME_MODEL_FILENAME
+    if not path.is_file():
+        console.print(
+            "No regime model yet. It's created the first time a desk analyst calls "
+            "get_regime_estimate (e.g. `socagents desk SPY`)."
+        )
+        return
+    model = RegimeClassifier.load(path)
+    table = Table(show_header=False, show_edge=False, pad_edge=False)
+    table.add_column("check", style="bold")
+    table.add_column("value")
+    table.add_row("Model file", str(path))
+    table.add_row("Examples learned", str(model.n_learned))
+    outcomes = model.recent_outcomes
+    accuracy = model.accuracy
+    table.add_row(
+        "Rolling accuracy",
+        "not enough resolved outcomes yet"
+        if accuracy is None
+        else f"{accuracy:.0%} over the last {len(outcomes)} outcomes",
+    )
+    if outcomes:
+        sparkline = Text()
+        for i, outcome in enumerate(outcomes):
+            if i:
+                sparkline.append(" ")
+            mark, style = ("✓", "green") if outcome.correct else ("✗", "red")
+            sparkline.append(mark, style=style)
+        table.add_row("Recent outcomes", sparkline)
+    pending = model.pending_symbols
+    table.add_row("Awaiting outcome", ", ".join(pending) if pending else "none")
+    console.print(table)
+    console.print(
+        "[dim]Research track: an early, unvalidated signal, not a substitute for the "
+        "gamma regime call.[/dim]"
+    )
 
 
 @app.command()

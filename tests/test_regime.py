@@ -123,32 +123,52 @@ def test_cold_start_prediction() -> None:
 def test_observe_then_maybe_learn_waits_for_enough_new_bars() -> None:
     model = RegimeClassifier()
     anchor = AS_OF
-    model.observe("SPY", {"a": 1.0}, anchor)
+    model.observe("SPY", {"a": 1.0}, anchor, "mean_reverting")
     not_enough = bars([100.0], start=anchor) + bars(
         [100 + i for i in range(HORIZON_BARS - 1)], start=anchor + timedelta(minutes=5)
     )
     model.maybe_learn("SPY", not_enough)
     assert model.is_fit is False
-    assert "SPY" in model._pending  # pending example still unresolved
+    assert model.pending_symbols == ["SPY"]
+    assert model.accuracy is None
 
 
 def test_observe_then_maybe_learn_learns_once_outcome_is_knowable() -> None:
     model = RegimeClassifier()
     anchor = AS_OF
-    model.observe("SPY", {"a": 1.0}, anchor)
+    model.observe("SPY", {"a": 1.0}, anchor, "mean_reverting")
     enough = bars([100.0], start=anchor) + bars(
         [100 + i * 2 for i in range(HORIZON_BARS)], start=anchor + timedelta(minutes=5)
     )
     model.maybe_learn("SPY", enough)
     assert model.is_fit is True
-    assert "SPY" not in model._pending
+    assert model.pending_symbols == []
+
+
+def test_maybe_learn_records_whether_the_prior_prediction_was_correct() -> None:
+    model = RegimeClassifier()
+    anchor = AS_OF
+    enough = bars([100.0], start=anchor) + bars(
+        [100 + i * 2 for i in range(HORIZON_BARS)], start=anchor + timedelta(minutes=5)
+    )  # this window resolves to "trending" (see label_outcome tests above)
+
+    model.observe("SPY", {"a": 1.0}, anchor, "trending")  # correct guess
+    model.maybe_learn("SPY", enough)
+    assert model.accuracy == 1.0
+    assert model.recent_outcomes[-1].correct is True
+
+    model.observe("QQQ", {"a": 1.0}, anchor, "mean_reverting")  # wrong guess
+    model.maybe_learn("QQQ", enough)
+    assert model.n_learned == 2
+    assert model.accuracy == 0.5
+    assert [o.correct for o in model.recent_outcomes] == [True, False]
 
 
 def test_save_load_roundtrip_preserves_learned_state(tmp_path: Path) -> None:
     model = RegimeClassifier()
     anchor = AS_OF
     features = {"net_gex_sign": 1.0, "return_z": 2.0}
-    model.observe("SPY", features, anchor)
+    model.observe("SPY", features, anchor, "mean_reverting")
     enough = bars([100.0], start=anchor) + bars(
         [100 + i * 2 for i in range(HORIZON_BARS)], start=anchor + timedelta(minutes=5)
     )
@@ -160,6 +180,7 @@ def test_save_load_roundtrip_preserves_learned_state(tmp_path: Path) -> None:
     reloaded = RegimeClassifier.load(path)
     assert reloaded.is_fit is True
     assert reloaded.predict(features) == model.predict(features)
+    assert reloaded.accuracy == model.accuracy
 
 
 def test_load_missing_file_returns_fresh_classifier(tmp_path: Path) -> None:

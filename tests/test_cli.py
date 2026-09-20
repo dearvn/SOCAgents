@@ -165,6 +165,19 @@ def test_config_commands_and_upsell_opt_out() -> None:
     assert not any("utm_source" in n for n in desk_json()["notices"])
 
 
+def test_regime_status_before_and_after_a_desk_run() -> None:
+    before = runner.invoke(app, ["regime", "status"])
+    assert before.exit_code == 0
+    assert "No regime model yet" in before.output
+
+    desk_json()  # runs `desk SPY`, whose technical analyst calls get_regime_estimate
+
+    after = runner.invoke(app, ["regime", "status"])
+    assert after.exit_code == 0
+    assert "Examples learned" in after.output
+    assert "Awaiting outcome" in after.output
+
+
 def test_brief_command() -> None:
     result = runner.invoke(app, ["brief", "--symbols", "SPY,QQQ", "--json"])
     assert result.exit_code == 0, result.output
