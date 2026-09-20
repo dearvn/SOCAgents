@@ -6,6 +6,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import secrets
 import sys
 import webbrowser
 from collections.abc import Callable
@@ -61,7 +62,16 @@ from socagents.runtime.states import RunStatus
 from socagents.session import purge_member_data
 from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_skill
 from socagents.social.x import auth as x_auth
-from socagents.social.x.compose import weighted_len
+from socagents.social.x.auth import TokenProvider
+from socagents.social.x.client import POST_USD, POST_WITH_LINK_USD, XClient
+from socagents.social.x.compose import has_link, weighted_len
+from socagents.social.x.oauth import (
+    DEFAULT_REDIRECT_URI,
+    authorize_url,
+    exchange_code,
+    new_pkce,
+    wait_for_code,
+)
 from socagents.social.x.policy import REASONS, XPolicy
 from socagents.social.x.runner import CycleReport, run_once
 from socagents.social.x.storage import BOT_USERNAME, SINCE_ID, XStore
@@ -905,6 +915,114 @@ def mcp_remove(name: str) -> None:
 
 
 # x bot
+
+
+@x_app.command("auth")
+def x_authorize(
+    client_id: Annotated[str, typer.Option(prompt="Client ID", help="OAuth 2.0 Client ID.")],
+    client_secret: Annotated[
+        str,
+        typer.Option(
+            prompt="Client secret (blank for a public client)",
+            hide_input=True,
+            help="Only for confidential clients.",
+        ),
+    ] = "",
+    redirect_uri: Annotated[
+        str, typer.Option(help="Must match a callback URI on the app, character for character.")
+    ] = DEFAULT_REDIRECT_URI,
+    timeout: Annotated[
+        int, typer.Option(min=30, max=900, help="Seconds to wait for the redirect.")
+    ] = 300,
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open the consent page automatically.")
+    ] = True,
+) -> None:
+    """Run the OAuth 2.0 PKCE flow and store the resulting refresh token.
+
+    Sign in as the bot account, not your own. Register the redirect URI on the app first.
+    """
+    pkce = new_pkce()
+    state = secrets.token_urlsafe(16)
+    url = authorize_url(
+        client_id=client_id, redirect_uri=redirect_uri, state=state, challenge=pkce.challenge
+    )
+    console.print(f"Waiting for the redirect on [bold]{redirect_uri}[/bold]. Approve here:\n")
+    console.print(escape(url) + "\n")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        code = wait_for_code(redirect_uri=redirect_uri, state=state, timeout_s=timeout)
+        tokens = asyncio.run(
+            exchange_code(
+                code=code,
+                client_id=client_id,
+                client_secret=client_secret or None,
+                redirect_uri=redirect_uri,
+                verifier=pkce.verifier,
+            )
+        )
+        x_auth.save("client_id", client_id)
+        if client_secret:
+            x_auth.save("client_secret", client_secret)
+        x_auth.save("refresh_token", str(tokens["refresh_token"]))
+    except SocAgentsError as exc:
+        _fail(exc)
+    console.print(f"Authorized. Scopes: {tokens.get('scope', 'unknown')}")
+    console.print("Refresh token stored in the OS keychain. Check it with `socagents x status`.")
+
+
+@x_app.command("post")
+def x_post(
+    text: Annotated[str, typer.Argument(help="The text to post.")],
+    reply_to: Annotated[
+        str | None, typer.Option(help="Post it as a reply to this tweet id.")
+    ] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation.")] = False,
+) -> None:
+    """Post one tweet. Use it to prove the write path works before running the reply loop.
+
+    This is the plain write path with no agent behind it: what you type is what goes out.
+    """
+    settings = _settings()
+    if not settings.kill_switches.agent_social:
+        _fail(
+            ConfigError(
+                "Posting to X is off. Set AGENT_SOCIAL=1 to allow it.", code="social_disabled"
+            )
+        )
+    weight = weighted_len(text)
+    if weight > 280:
+        _fail(ConfigError(f"{weight} of 280 characters by X's count. Shorten it."))
+    price = POST_WITH_LINK_USD if has_link(text) else POST_USD
+    console.print(Panel(Text(text), title=f"{weight}/280 · about ${price:.3f}", title_align="left"))
+    if has_link(text):
+        console.print(
+            f"[yellow]The text contains a link: X charges ${POST_WITH_LINK_USD:.2f} for that "
+            f"post instead of ${POST_USD:.3f}.[/yellow]"
+        )
+    if not yes and not typer.confirm("Post this to X?"):
+        raise typer.Exit(1)
+
+    async def go() -> str:
+        client = XClient(TokenProvider(x_auth.load_credentials()))
+        try:
+            return await client.post(text, in_reply_to=reply_to)
+        finally:
+            await client.aclose()
+
+    try:
+        tweet_id = asyncio.run(go())
+    except SocAgentsError as exc:
+        _fail(exc)
+
+    store = Store(settings.db_path)
+    try:
+        handle = XStore(store).get_state(BOT_USERNAME)
+    finally:
+        store.close()
+    where = f"https://x.com/{handle}/status/{tweet_id}" if handle else f"tweet {tweet_id}"
+    console.print(f"Posted: {where}")
 
 
 @x_app.command("login")

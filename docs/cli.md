@@ -41,7 +41,8 @@ Available now:
 | `socagents mcp serve` | local MCP server over stdio |
 | `socagents doctor` | environment check |
 | `socagents x once [--post] [--symbols A,B] [--max-replies N] [--json]` | one X reply-bot cycle; drafts unless `--post` and `AGENT_SOCIAL=1` (see [X reply bot](x-bot.md)) |
-| `socagents x login` / `logout` / `status` | X OAuth credentials, cursor, and what the bot did in the last 24h |
+| `socagents x auth` / `login` / `logout` / `status` | X OAuth credentials (PKCE flow or a token you hold), cursor, and what the bot did in the last 24h |
+| `socagents x post "TEXT" [--reply-to ID]` | post one tweet to test the write path; needs `AGENT_SOCIAL=1` |
 | `socagents skills list\|show\|enable\|disable\|add PATH\|remove` | manage skills |
 | `socagents mcp add NAME -- COMMAND` / `mcp list\|show\|allow\|deny\|verify\|remove` | external MCP servers as read-only desk tools |
 

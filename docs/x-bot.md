@@ -27,23 +27,40 @@ estimate of what X billed for that cycle, using the rates in
 
 ## Setup
 
-1. In the X developer portal, set the app's user authentication to **Read and Write**, then
-   regenerate its tokens. Tokens issued before the change keep the old scope.
-2. Get an OAuth 2.0 refresh token with the scopes
-   `tweet.read tweet.write users.read offline.access`.
-3. Store the credentials:
+Use a separate account for the bot, not your main one.
+
+1. In the X developer portal, enable pay-per-use billing on the project.
+2. On the app, set **User authentication settings** to OAuth 2.0 with **Read and Write**
+   permission, and add `http://127.0.0.1:8723/callback` as a callback URI. Regenerate the
+   app's tokens afterwards: tokens issued before the permission change keep the old scope.
+3. Authorize, signed in as the bot account:
 
 ```bash
-socagents x login          # client id, optional secret, refresh token → OS keychain
+socagents x auth           # PKCE flow in the browser → refresh token in the OS keychain
 socagents x status         # where each credential came from, and whether posting is on
 ```
+
+`socagents x auth` asks for the Client ID (and the secret, if the app is a confidential
+client), opens the consent page, catches the redirect on port 8723, and stores the refresh
+token. Pass `--redirect-uri` if you registered a different one. `socagents x login` is the
+manual alternative when you already hold a refresh token.
 
 `X_CLIENT_ID`, `X_CLIENT_SECRET` and `X_REFRESH_TOKEN` work too and take priority over the
 keychain. Refresh tokens rotate on every use: the rotated one goes to the keychain, so an
 environment variable holding the old token goes stale after the first refresh and the run
 says so. For a read-only dry run, a short-lived `X_ACCESS_TOKEN` on its own is enough.
 
-Use a separate account for the bot, not your main one.
+## Test the write path on its own
+
+Before running the reply loop, prove the account can post at all. One tweet, $0.015:
+
+```bash
+AGENT_SOCIAL=1 socagents x post "Test post from the SOCAgents desk bot."
+```
+
+It shows the weighted character count and the price, warns if the text contains a link, and
+asks before sending. There is no agent behind this command: what you type is what goes out.
+A 403 here means the app permission or its tokens, not billing.
 
 ## Dry run
 

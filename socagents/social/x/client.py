@@ -136,11 +136,7 @@ class XClient:
         if response.status_code == 401:
             raise XAuthError("X rejected the access token. Run `socagents x login` again.")
         if response.status_code == 403:
-            raise XAccessError(
-                "X refused the call (403). The legacy Free tier is write-only: it cannot read "
-                "mentions. Enable pay-per-use billing in the developer portal, and check the "
-                f"app has Read and Write permission. X said: {_detail(response)}"
-            )
+            raise XAccessError(f"{_forbidden_hint(method)} X said: {_detail(response)}")
         if response.status_code == 429:
             reset = response.headers.get("x-rate-limit-reset")
             raise XRateLimited(
@@ -189,6 +185,19 @@ class XClient:
         if not tweet_id:
             raise XError("X accepted the post but returned no id.")
         return str(tweet_id)
+
+
+def _forbidden_hint(method: str) -> str:
+    """403 means different things for a read and a write, so say the right one."""
+    if method.upper() == "GET":
+        return (
+            "X refused the read (403). The legacy Free tier is write-only: it cannot read "
+            "posts or mentions at all. Enable pay-per-use billing in the developer portal."
+        )
+    return (
+        "X refused the post (403). Set the app's user authentication to Read and Write, then "
+        "regenerate its tokens: tokens issued before that change keep the old scope."
+    )
 
 
 def _detail(response: httpx.Response) -> str:

@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import socket
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
+from urllib.error import URLError
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import keyring
@@ -15,9 +24,16 @@ from socagents.core.credentials import SERVICE
 from socagents.core.errors import ConfigError
 from socagents.core.timeutil import iso, utcnow
 from socagents.db.store import Store
-from socagents.social.x.auth import ACCOUNTS, TokenProvider, XCredentials, load_credentials
+from socagents.social.x.auth import (
+    ACCOUNTS,
+    SCOPES,
+    TokenProvider,
+    XCredentials,
+    load_credentials,
+)
 from socagents.social.x.client import Mention, XAccessError, XClient, XRateLimited
 from socagents.social.x.compose import compose_reply, mention_body, strip_for_x, weighted_len
+from socagents.social.x.oauth import authorize_url, exchange_code, new_pkce, wait_for_code
 from socagents.social.x.policy import XPolicy, decide
 from socagents.social.x.runner import run_once
 from socagents.social.x.storage import SINCE_ID, XStore
@@ -255,7 +271,7 @@ async def test_mentions_are_parsed_oldest_first() -> None:
     assert mentions[0].handle == "@trader"
 
 
-async def test_forbidden_explains_the_free_tier() -> None:
+async def test_forbidden_read_explains_the_free_tier() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, json={"detail": "client-not-enrolled"})
 
@@ -267,6 +283,20 @@ async def test_forbidden_explains_the_free_tier() -> None:
         await client.aclose()
     assert "write-only" in str(caught.value)
     assert "client-not-enrolled" in str(caught.value)
+
+
+async def test_forbidden_write_points_at_the_app_permission() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"detail": "unsupported-authentication"})
+
+    client = make_client(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(XAccessError) as caught:
+            await client.post("hello")
+    finally:
+        await client.aclose()
+    assert "Read and Write" in str(caught.value)
+    assert "write-only" not in str(caught.value)
 
 
 async def test_rate_limit_carries_the_reset() -> None:
@@ -436,5 +466,135 @@ def test_x_status_without_credentials(tmp_path: Any) -> None:
 
 def test_x_once_without_credentials_explains_login() -> None:
     result = runner.invoke(app, ["x", "once"])
+    assert result.exit_code == 2, result.output
+    assert "socagents x login" in result.output
+
+
+# oauth
+
+
+def test_pkce_challenge_is_the_sha256_of_the_verifier() -> None:
+    pkce = new_pkce()
+    digest = hashlib.sha256(pkce.verifier.encode()).digest()
+    assert pkce.challenge == base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    assert "=" not in pkce.challenge
+
+
+def test_authorize_url_carries_every_required_parameter() -> None:
+    url = authorize_url(
+        client_id="cid", redirect_uri="http://127.0.0.1:9/cb", state="st", challenge="ch"
+    )
+    params = parse_qs(urlparse(url).query)
+    assert params["response_type"] == ["code"]
+    assert params["code_challenge_method"] == ["S256"]
+    assert params["code_challenge"] == ["ch"]
+    assert params["state"] == ["st"]
+    assert "offline.access" in params["scope"][0]
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def call_redirect(url: str) -> int:
+    """Hit the local callback, retrying until the server in the other thread is listening."""
+    for _ in range(50):
+        try:
+            with urllib.request.urlopen(url, timeout=2) as response:
+                return int(response.status)
+        except urllib.error.HTTPError as exc:
+            return int(exc.code)
+        except URLError:
+            time.sleep(0.05)
+    raise AssertionError(f"callback server never came up for {url}")
+
+
+def test_wait_for_code_captures_the_redirect() -> None:
+    redirect = f"http://127.0.0.1:{free_port()}/callback"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(wait_for_code, redirect_uri=redirect, state="st", timeout_s=10)
+        assert call_redirect(f"{redirect}?code=abc123&state=st") == 200
+        assert pending.result(timeout=10) == "abc123"
+
+
+def test_wait_for_code_rejects_a_mismatched_state() -> None:
+    redirect = f"http://127.0.0.1:{free_port()}/callback"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(wait_for_code, redirect_uri=redirect, state="st", timeout_s=10)
+        assert call_redirect(f"{redirect}?code=abc123&state=forged") == 400
+        with pytest.raises(ConfigError, match="wrong state"):
+            pending.result(timeout=10)
+
+
+def test_wait_for_code_surfaces_a_refusal() -> None:
+    redirect = f"http://127.0.0.1:{free_port()}/callback"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(wait_for_code, redirect_uri=redirect, state="st", timeout_s=10)
+        assert call_redirect(f"{redirect}?error=access_denied&state=st") == 400
+        with pytest.raises(ConfigError, match="access_denied"):
+            pending.result(timeout=10)
+
+
+async def test_exchange_code_sends_the_verifier() -> None:
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.content)
+        return httpx.Response(
+            200,
+            json={"access_token": "a1", "refresh_token": "r1", "scope": SCOPES, "expires_in": 7200},
+        )
+
+    tokens = await exchange_code(
+        code="abc123",
+        client_id="cid",
+        client_secret=None,
+        redirect_uri="http://127.0.0.1:9/cb",
+        verifier="v1",
+        token_url="https://api.test/2/oauth2/token",
+        transport=httpx.MockTransport(handler),
+    )
+    assert tokens["refresh_token"] == "r1"
+    assert b"code_verifier=v1" in seen[0]
+    assert b"grant_type=authorization_code" in seen[0]
+
+
+async def test_exchange_code_without_offline_access_is_rejected() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"access_token": "a1", "scope": "tweet.read"})
+
+    with pytest.raises(ConfigError, match=r"offline\.access"):
+        await exchange_code(
+            code="abc123",
+            client_id="cid",
+            client_secret=None,
+            redirect_uri="http://127.0.0.1:9/cb",
+            verifier="v1",
+            token_url="https://api.test/2/oauth2/token",
+            transport=httpx.MockTransport(handler),
+        )
+
+
+# cli: post
+
+
+def test_x_post_needs_the_kill_switch() -> None:
+    result = runner.invoke(app, ["x", "post", "SPY gamma flips at 574.", "--yes"])
+    assert result.exit_code == 2, result.output
+    assert "AGENT_SOCIAL=1" in result.output
+
+
+def test_x_post_refuses_an_overlong_tweet(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_SOCIAL", "1")
+    result = runner.invoke(app, ["x", "post", "SPY " * 100, "--yes"])
+    assert result.exit_code == 2, result.output
+    assert "280" in result.output
+
+
+def test_x_post_without_credentials_explains_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_SOCIAL", "1")
+    result = runner.invoke(app, ["x", "post", "SPY gamma flips at 574.", "--yes"])
     assert result.exit_code == 2, result.output
     assert "socagents x login" in result.output

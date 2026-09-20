@@ -38,6 +38,11 @@ def weighted_len(text: str) -> int:
     return sum(1 if any(lo <= ord(ch) <= hi for lo, hi in _LIGHT_RANGES) else 2 for ch in text)
 
 
+def has_link(text: str) -> bool:
+    """A post with a link costs more than ten times one without, so callers warn first."""
+    return bool(_URL_RE.search(text))
+
+
 def mention_body(text: str) -> str:
     """A mention with handles and links removed, so ticker extraction sees only prose."""
     return _WHITESPACE_RE.sub(" ", _URL_RE.sub(" ", _HANDLE_RE.sub(" ", text))).strip()
