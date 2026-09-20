@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from socagents.core.errors import ProviderError, SymbolNotFound
+from socagents.core.timeutil import ET, next_session_open
 from socagents.providers.base import (
     Bar,
     BarSeries,
@@ -132,5 +133,7 @@ class FixtureProvider:
         doc = self._load(symbols[0])
         start = datetime.fromisoformat(doc["meta"]["as_of"])
         end = start + timedelta(hours=hours)
+        if start.astimezone(ET).weekday() >= 5:  # Sat/Sun: see community.py's events()
+            end = max(end, next_session_open(start) + timedelta(hours=hours))
         events = [EconomicEvent.model_validate(e) for e in doc.get("events", [])]
         return EventSet(**self._meta(doc), events=[e for e in events if start <= e.time <= end])

@@ -41,7 +41,7 @@ from socagents.desk.models import (
 from socagents.desk.roles import ROLES, Profile, profile_roles, system_prompt, user_message
 from socagents.desk.storage import DeskStore
 from socagents.desk.structured import parse_or_repair
-from socagents.desk.verify import known_evidence, numbers_in, verify_levels
+from socagents.desk.verify import known_evidence, matches, numbers_in, verify_levels
 from socagents.growth import MEMBER_NOTE, attributed_url
 from socagents.model_gateway.pricing import Price, cost_usd
 from socagents.model_gateway.types import ModelProvider, ToolCall
@@ -516,6 +516,47 @@ class DeskGraph:
 
     # deterministic risk step
 
+    def _quote_check(self, idea: DeskIdea) -> RiskReason | None:
+        """B1: an option idea must cite a get_option_quote snapshot for its OWN
+        contract (right/strike/expiration), at a premium within the same
+        tolerance verify.py already uses for key levels. Citing an unrelated
+        trusted snapshot — most commonly the shared spot_snapshot every role
+        receives — must not be enough to make up a contract and premium; this
+        filters by SnapshotRef.tool, which naturally excludes it (it's a
+        get_quote snapshot, not get_option_quote) without needing to track
+        the spot snapshot's id specially.
+        """
+        if idea.instrument != "option":
+            return None
+        match: dict[str, Any] | None = None
+        for sid in idea.evidence:
+            ref = self._snapshots.get(sid)
+            if ref is None or ref.tool != "get_option_quote":
+                continue
+            payload = self._payloads.get(sid)
+            if (
+                payload is not None
+                and payload.get("right") == idea.right
+                and payload.get("strike") == idea.strike
+                and payload.get("expiration")
+                == (idea.expiration.isoformat() if idea.expiration else None)
+            ):
+                match = payload
+                break
+        if match is None:
+            return RiskReason(
+                code="no_matching_quote",
+                message=f"No cited get_option_quote snapshot matches this idea's contract "
+                f"({idea.contract}).",
+            )
+        if not matches(idea.est_entry_premium, [match["mid"]]):
+            return RiskReason(
+                code="premium_not_verified",
+                message=f"est_entry_premium {idea.est_entry_premium:g} is not within "
+                f"tolerance of the cited quote's mid {match['mid']:g}.",
+            )
+        return None
+
     def _review(self, ideas: list[DeskIdea]) -> list[ReviewedIdea]:
         freshness = self._freshness()
         live = self._mode == "member" and not freshness.delayed and self._replay is None
@@ -534,16 +575,20 @@ class DeskGraph:
             )
             try:
                 decision = evaluate(idea.to_trade_idea(), self._risk_profile, ctx)
-                if not self._trusted.intersection(idea.evidence):
+                if idea.instrument == "option":
+                    deny_reason = self._quote_check(idea)
+                elif not self._trusted.intersection(idea.evidence):
+                    deny_reason = RiskReason(
+                        code="no_trusted_evidence",
+                        message="The idea cites no trusted data snapshot.",
+                    )
+                else:
+                    deny_reason = None
+                if deny_reason is not None:
                     decision = RiskDecision(
                         decision="deny",
                         check_mode=ctx.check_mode,
-                        reasons=[
-                            RiskReason(
-                                code="no_trusted_evidence",
-                                message="The idea cites no trusted data snapshot.",
-                            )
-                        ],
+                        reasons=[deny_reason],
                         suggested_fixes=[],
                         profile_version=self._risk_profile.version,
                         max_loss_usd=decision.max_loss_usd,

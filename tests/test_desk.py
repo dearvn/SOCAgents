@@ -454,7 +454,76 @@ async def test_ideas_without_trusted_evidence_are_denied(
     )
     [idea] = report.ideas
     assert idea.risk_check.decision == "deny"
-    assert [r.code for r in idea.risk_check.reasons] == ["no_trusted_evidence"]
+    # B1: an option idea with no evidence at all fails the stricter
+    # get_option_quote match, not the old generic "no trusted snapshot" check
+    # (which a citation of ANY trusted snapshot — e.g. the shared spot quote —
+    # used to satisfy without proving anything about this idea's own contract).
+    assert [r.code for r in idea.risk_check.reasons] == ["no_matching_quote"]
+    assert idea.convertible is False
+
+
+class WrongStrikeStrategist(ScriptedModel):
+    """The offline strategist's idea, but claiming a strike the cited
+    get_option_quote snapshot never quoted — B1's "invented contract" shape."""
+
+    async def complete(self, **kwargs: Any) -> ModelResponse:
+        response = await super().complete(**kwargs)
+        try:
+            data = json.loads(response.text or "")
+        except json.JSONDecodeError:
+            return response
+        if not isinstance(data, dict) or "ideas" not in data:
+            return response
+        for idea in data["ideas"]:
+            idea["strike"] = (idea["strike"] or 0) + 50
+        return ModelResponse(text=json.dumps(data), model=response.model, usage=response.usage)
+
+
+async def test_idea_with_a_strike_the_quote_never_gave_is_denied(
+    settings: Settings, tmp_path: Path
+) -> None:
+    member = MemberInfo(user_id="u1", entitlements=["agents", "execution_preorder"])
+    (tmp_path / "data").mkdir()
+    sess = session(settings, fresh_fixture(tmp_path / "data"), member=member)
+    report = await graph_run(
+        settings, scripted_models(strategist=WrongStrikeStrategist()), sess=sess
+    )
+    [idea] = report.ideas
+    assert idea.risk_check.decision == "deny"
+    assert [r.code for r in idea.risk_check.reasons] == ["no_matching_quote"]
+    assert idea.convertible is False
+
+
+class WrongPremiumStrategist(ScriptedModel):
+    """The offline strategist's idea, contract untouched, but est_entry_premium
+    far from the cited quote's mid — B1's "invented premium" shape, and
+    C11's basis-enforcement path."""
+
+    async def complete(self, **kwargs: Any) -> ModelResponse:
+        response = await super().complete(**kwargs)
+        try:
+            data = json.loads(response.text or "")
+        except json.JSONDecodeError:
+            return response
+        if not isinstance(data, dict) or "ideas" not in data:
+            return response
+        for idea in data["ideas"]:
+            idea["est_entry_premium"] = round(float(idea["est_entry_premium"] or 0) * 3 + 1, 2)
+        return ModelResponse(text=json.dumps(data), model=response.model, usage=response.usage)
+
+
+async def test_idea_with_premium_far_from_the_quotes_mid_is_denied(
+    settings: Settings, tmp_path: Path
+) -> None:
+    member = MemberInfo(user_id="u1", entitlements=["agents", "execution_preorder"])
+    (tmp_path / "data").mkdir()
+    sess = session(settings, fresh_fixture(tmp_path / "data"), member=member)
+    report = await graph_run(
+        settings, scripted_models(strategist=WrongPremiumStrategist()), sess=sess
+    )
+    [idea] = report.ideas
+    assert idea.risk_check.decision == "deny"
+    assert [r.code for r in idea.risk_check.reasons] == ["premium_not_verified"]
     assert idea.convertible is False
 
 

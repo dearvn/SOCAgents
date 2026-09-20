@@ -285,3 +285,24 @@ async def test_events_come_from_the_user_calendar(tmp_path: Path) -> None:
     await p.aclose()
     assert [e.name for e in events.events] == ["CPI"]
     assert empty.events == [] and empty.source == "no calendar configured"
+
+
+async def test_weekend_run_still_reaches_a_tuesday_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C10: a Saturday run's plain 48h window lands Monday late-morning and
+    never reaches a Tue/Wed FOMC. Saturday 2026-09-12 11:00 ET + 48h = Monday
+    11:00 ET, which excludes a Tuesday 14:00 ET event under the OLD fixed
+    window; next_session_open(Saturday) + 48h reaches Wednesday, including it.
+    """
+    saturday_11am_et = datetime(2026, 9, 12, 15, 0, tzinfo=UTC)  # 11:00 ET (EDT, UTC-4)
+    fomc_tuesday_2pm_et = datetime(2026, 9, 15, 18, 0, tzinfo=UTC)  # 14:00 ET
+
+    path = tmp_path / "calendar.json"
+    path.write_text(json.dumps([{"time": fomc_tuesday_2pm_et.isoformat(), "name": "FOMC"}]))
+
+    p, _ = provider({}, calendar_path=path)
+    monkeypatch.setattr("socagents.providers.community.utcnow", lambda: saturday_11am_et)
+    events = await p.events(48)
+    await p.aclose()
+    assert [e.name for e in events.events] == ["FOMC"]

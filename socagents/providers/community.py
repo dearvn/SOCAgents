@@ -26,7 +26,7 @@ import httpx
 
 from socagents import __version__
 from socagents.core.errors import ProviderError, SymbolNotFound
-from socagents.core.timeutil import ET, utcnow
+from socagents.core.timeutil import ET, next_session_open, utcnow
 from socagents.providers.base import (
     Bar,
     BarSeries,
@@ -201,6 +201,8 @@ class CommunityProvider:
                     f"Invalid calendar file: {exc}", code="invalid_calendar"
                 ) from exc
         end = now + timedelta(hours=hours)
+        if now.astimezone(ET).weekday() >= 5:  # Sat/Sun: a fixed window can miss Monday's open
+            end = max(end, next_session_open(now) + timedelta(hours=hours))
         return EventSet(
             source=source,
             as_of=now,
