@@ -133,6 +133,12 @@ Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` t
 | P3 | Trade plans to SocSwift pre-orders on SIM, with approval |
 | P4–P5 | Supervised SIM automation; live trading with approval after legal review |
 
+## Research Track: Continual Learning
+
+Markets are non-stationary — a model trained once decays as regimes shift. We're exploring continual/online learning so desk roles (analysts, strategist) adapt to new data without retraining from scratch or forgetting prior regimes.
+
+This is scoped to a single instance, not shared across users. Unlike positive-sum domains such as fraud detection, pooling trading signals across users degrades their value as the market arbitrages them away. Early-stage research, not part of a shipped profile or roadmap phase yet.
+
 ## Documentation
 
 Design docs and the CLI reference: [docs/](docs/README.md).
