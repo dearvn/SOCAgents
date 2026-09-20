@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import socket
 import time
@@ -26,14 +27,21 @@ from socagents.core.timeutil import iso, utcnow
 from socagents.db.store import Store
 from socagents.social.x.auth import (
     ACCOUNTS,
+    ENV_VARS,
+    OAUTH1_FIELDS,
     SCOPES,
+    OAuth1Auth,
+    OAuth1Credentials,
     TokenProvider,
     XCredentials,
-    load_credentials,
+    load_authorizer,
+    load_oauth1,
+    load_oauth2,
 )
 from socagents.social.x.client import Mention, XAccessError, XClient, XRateLimited
 from socagents.social.x.compose import compose_reply, mention_body, strip_for_x, weighted_len
 from socagents.social.x.oauth import authorize_url, exchange_code, new_pkce, wait_for_code
+from socagents.social.x.oauth1 import encode, signature_base
 from socagents.social.x.policy import XPolicy, decide
 from socagents.social.x.runner import run_once
 from socagents.social.x.storage import SINCE_ID, XStore
@@ -271,7 +279,7 @@ async def test_mentions_are_parsed_oldest_first() -> None:
     assert mentions[0].handle == "@trader"
 
 
-async def test_forbidden_read_explains_the_free_tier() -> None:
+async def test_forbidden_read_points_at_billing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, json={"detail": "client-not-enrolled"})
 
@@ -281,8 +289,30 @@ async def test_forbidden_read_explains_the_free_tier() -> None:
             await client.mentions("bot1")
     finally:
         await client.aclose()
-    assert "write-only" in str(caught.value)
     assert "client-not-enrolled" in str(caught.value)
+    assert "pay-per-use billing" in str(caught.value)
+
+
+async def test_forbidden_leads_with_what_x_said() -> None:
+    """A project error must not be buried under a guess about tiers or permissions."""
+    said = "you must use keys and tokens from a developer App that is attached to a Project"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"detail": said})
+
+    client = make_client(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(XAccessError) as read_error:
+            await client.mentions("bot1")
+        with pytest.raises(XAccessError) as write_error:
+            await client.post("hello")
+    finally:
+        await client.aclose()
+    for caught in (read_error, write_error):
+        assert str(caught.value).startswith(f"X refused this call (403): {said}")
+        assert "regenerate the API key" in str(caught.value)
+        assert "billing is not enabled" in str(caught.value)
+        assert "write-only" not in str(caught.value)
 
 
 async def test_forbidden_write_points_at_the_app_permission() -> None:
@@ -297,6 +327,7 @@ async def test_forbidden_write_points_at_the_app_permission() -> None:
         await client.aclose()
     assert "Read and Write" in str(caught.value)
     assert "write-only" not in str(caught.value)
+    assert "unsupported-authentication" in str(caught.value)
 
 
 async def test_rate_limit_carries_the_reset() -> None:
@@ -326,19 +357,71 @@ async def test_post_sends_the_reply_reference() -> None:
 # auth
 
 
-def test_load_credentials_without_anything_explains_how(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_credentials_names_both_ways_in() -> None:
     with pytest.raises(ConfigError) as caught:
-        load_credentials()
+        load_authorizer()
     assert "socagents x login" in str(caught.value)
+    assert "socagents x auth" in str(caught.value)
 
 
-def test_load_credentials_prefers_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_credentials_prefer_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     keyring.set_password(SERVICE, ACCOUNTS["client_id"], "stored")
     monkeypatch.setenv("X_CLIENT_ID", "from-env")
     monkeypatch.setenv("X_REFRESH_TOKEN", "r1")
-    creds = load_credentials()
+    creds = load_oauth2()
+    assert creds is not None
     assert creds.client_id == "from-env"
     assert creds.can_refresh is True
+
+
+def test_oauth1_needs_all_four_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    for field in OAUTH1_FIELDS[:3]:
+        monkeypatch.setenv(ENV_VARS[field], "v")
+    assert load_oauth1() is None
+    monkeypatch.setenv(ENV_VARS["access_token_secret"], "v")
+    assert load_oauth1() is not None
+
+
+def test_oauth1_wins_when_both_are_stored(monkeypatch: pytest.MonkeyPatch) -> None:
+    for field in OAUTH1_FIELDS:
+        monkeypatch.setenv(ENV_VARS[field], "v")
+    monkeypatch.setenv("X_CLIENT_ID", "cid")
+    monkeypatch.setenv("X_REFRESH_TOKEN", "r1")
+    assert load_authorizer().kind == "oauth1"
+
+
+async def test_oauth1_header_is_signed_and_carries_the_token() -> None:
+    auth = OAuth1Auth(OAuth1Credentials("ck", "cs", "tk", "ts"))
+    header = await auth.header("GET", "https://api.x.com/2/users/1/mentions", {"max_results": 25})
+    assert header.startswith("OAuth ")
+    assert 'oauth_consumer_key="ck"' in header
+    assert 'oauth_token="tk"' in header
+    assert 'oauth_signature_method="HMAC-SHA1"' in header
+    assert "oauth_signature=" in header
+
+
+def test_signature_base_matches_rfc_5849() -> None:
+    """The worked example from RFC 5849 3.4.1.1, the one every library is checked against."""
+    url = "http://example.com/request?b5=%3D%253D&a3=a&c%40=&a2=r%20b"
+    params = {
+        "c2": "",
+        "a3": "2 q",
+        "oauth_consumer_key": "9djdj82h48djs9d2",
+        "oauth_token": "kkk9d7dh3k39sjv7",
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": "137131201",
+        "oauth_nonce": "7d8f3e4a",
+    }
+    base = signature_base("POST", url, params)
+    assert base == (
+        "POST&http%3A%2F%2Fexample.com%2Frequest&a2%3Dr%2520b%26a3%3D2%2520q%26a3%3Da%26b5%3D"
+        "%253D%25253D%26c%2540%3D%26c2%3D%26oauth_consumer_key%3D9djdj82h48djs9d2%26oauth_nonce"
+        "%3D7d8f3e4a%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D137131201%26"
+        "oauth_token%3Dkkk9d7dh3k39sjv7"
+    )
+    key = f"{encode('j49sk3j29djd')}&{encode('dh893hdasih9')}".encode()
+    digest = hmac.new(key, base.encode(), hashlib.sha1).digest()
+    assert base64.b64encode(digest).decode() == "r6/TJjbCOr97/+UU0NsvSne7s5g="
 
 
 async def test_refresh_stores_the_rotated_token() -> None:
@@ -596,5 +679,43 @@ def test_x_post_refuses_an_overlong_tweet(monkeypatch: pytest.MonkeyPatch) -> No
 def test_x_post_without_credentials_explains_login(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_SOCIAL", "1")
     result = runner.invoke(app, ["x", "post", "SPY gamma flips at 574.", "--yes"])
+    assert result.exit_code == 2, result.output
+    assert "socagents x login" in result.output
+
+
+def flat(output: str) -> str:
+    """Rich wraps table cells across lines; compare against the unwrapped text."""
+    return " ".join(output.replace("\u2502", " ").split())
+
+
+def test_x_status_names_the_shadowing_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    for field in OAUTH1_FIELDS:
+        keyring.set_password(SERVICE, ACCOUNTS[field], "stored")
+    monkeypatch.setenv("X_API_KEY", "leftover")
+    result = runner.invoke(app, ["x", "status"])
+    assert result.exit_code == 0, result.output
+    assert "X_API_KEY from env, the rest from the keychain" in flat(result.output)
+    assert "X_API_KEY in the environment override what is stored" in flat(result.output)
+
+
+def test_x_status_is_quiet_when_nothing_shadows() -> None:
+    for field in OAUTH1_FIELDS:
+        keyring.set_password(SERVICE, ACCOUNTS[field], "stored")
+    result = runner.invoke(app, ["x", "status"])
+    assert "all from the keychain" in flat(result.output)
+    assert "override what is stored" not in flat(result.output)
+
+
+async def test_me_is_cached_for_later_links(settings: Settings) -> None:
+    client = make_client(x_api([]))
+    try:
+        bot = await client.me()
+    finally:
+        await client.aclose()
+    assert (bot.id, bot.username) == ("bot1", "socagentsbot")
+
+
+def test_x_whoami_without_credentials_explains_login() -> None:
+    result = runner.invoke(app, ["x", "whoami"])
     assert result.exit_code == 2, result.output
     assert "socagents x login" in result.output

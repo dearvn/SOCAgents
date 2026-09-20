@@ -62,8 +62,7 @@ from socagents.runtime.states import RunStatus
 from socagents.session import purge_member_data
 from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_skill
 from socagents.social.x import auth as x_auth
-from socagents.social.x.auth import TokenProvider
-from socagents.social.x.client import POST_USD, POST_WITH_LINK_USD, XClient
+from socagents.social.x.client import POST_USD, POST_WITH_LINK_USD, XClient, XUser
 from socagents.social.x.compose import has_link, weighted_len
 from socagents.social.x.oauth import (
     DEFAULT_REDIRECT_URI,
@@ -74,7 +73,7 @@ from socagents.social.x.oauth import (
 )
 from socagents.social.x.policy import REASONS, XPolicy
 from socagents.social.x.runner import CycleReport, run_once
-from socagents.social.x.storage import BOT_USERNAME, SINCE_ID, XStore
+from socagents.social.x.storage import BOT_USER_ID, BOT_USERNAME, SINCE_ID, XStore
 from socagents.socswift_client.client import MemberInfo, MembershipError, SocSwiftClient
 
 app = typer.Typer(
@@ -972,6 +971,38 @@ def x_authorize(
     console.print("Refresh token stored in the OS keychain. Check it with `socagents x status`.")
 
 
+@x_app.command("whoami")
+def x_whoami() -> None:
+    """Ask X which account the stored credentials belong to.
+
+    The cheapest call the API has, and the one that separates a credential problem from a
+    permission problem: if this works and posting does not, the keys are fine and the app's
+    write access is not. The account is cached, so later replies can show their own links.
+    """
+    settings = _settings()
+
+    async def go() -> XUser:
+        client = XClient(x_auth.load_authorizer())
+        try:
+            return await client.me()
+        finally:
+            await client.aclose()
+
+    try:
+        bot = asyncio.run(go())
+    except SocAgentsError as exc:
+        _fail(exc)
+
+    store = Store(settings.db_path)
+    try:
+        x_store = XStore(store)
+        x_store.set_state(BOT_USER_ID, bot.id)
+        x_store.set_state(BOT_USERNAME, bot.username)
+    finally:
+        store.close()
+    console.print(f"@{bot.username} (id {bot.id}) — posts will go out as this account.")
+
+
 @x_app.command("post")
 def x_post(
     text: Annotated[str, typer.Argument(help="The text to post.")],
@@ -1005,7 +1036,7 @@ def x_post(
         raise typer.Exit(1)
 
     async def go() -> str:
-        client = XClient(TokenProvider(x_auth.load_credentials()))
+        client = XClient(x_auth.load_authorizer())
         try:
             return await client.post(text, in_reply_to=reply_to)
         finally:
@@ -1027,27 +1058,28 @@ def x_post(
 
 @x_app.command("login")
 def x_login() -> None:
-    """Store X OAuth 2.0 credentials in the OS keychain.
+    """Store the four OAuth 1.0a values from the app's "Keys and tokens" tab.
 
-    Create them in the X developer portal: an OAuth 2.0 app with Read and Write permission
-    and the scopes tweet.read tweet.write users.read offline.access. Refresh tokens rotate
-    on every use, so the stored one is replaced each time the bot refreshes.
+    They never expire and need no browser flow, so they are the simpler credential for a
+    cron job. They post as the account that owns the app: for a separate bot account, use
+    `socagents x auth` instead. The access token must say Read and Write; if it was created
+    before the app's permission was raised, regenerate it first.
     """
-    client_id = typer.prompt("Client ID").strip()
-    client_secret = typer.prompt(
-        "Client secret (blank for a public client)", default="", hide_input=True
-    ).strip()
-    refresh_token = typer.prompt("Refresh token", hide_input=True).strip()
-    if not client_id or not refresh_token:
-        _fail(ConfigError("A client ID and a refresh token are both required."))
+    values = {
+        "api_key": typer.prompt("API Key").strip(),
+        "api_secret": typer.prompt("API Key Secret", hide_input=True).strip(),
+        "access_token": typer.prompt("Access Token").strip(),
+        "access_token_secret": typer.prompt("Access Token Secret", hide_input=True).strip(),
+    }
+    if missing := [x_auth.ENV_VARS[name] for name, value in values.items() if not value]:
+        _fail(ConfigError(f"All four values are required. Missing: {', '.join(missing)}."))
     try:
-        x_auth.save("client_id", client_id)
-        if client_secret:
-            x_auth.save("client_secret", client_secret)
-        x_auth.save("refresh_token", refresh_token)
+        for name, value in values.items():
+            x_auth.save(name, value)
     except SocAgentsError as exc:
         _fail(exc)
-    console.print("Saved to the OS keychain. Check it with `socagents x status`.")
+    console.print("Saved to the OS keychain. Check it with `socagents x status`,")
+    console.print('then prove the write path with `AGENT_SOCIAL=1 socagents x post "..."`.')
 
 
 @x_app.command("logout")
@@ -1199,6 +1231,32 @@ def _cycle_json(report: CycleReport) -> dict[str, Any]:
     }
 
 
+def _x_auth_mode() -> str:
+    if x_auth.load_oauth1() is not None:
+        return "OAuth 1.0a — posts as the account that owns the app"
+    if x_auth.load_oauth2() is not None:
+        return "OAuth 2.0 — posts as the authorized account"
+    return "[yellow]not configured — run `socagents x login` or `socagents x auth`[/yellow]"
+
+
+def _credential_summary(fields: tuple[str, ...]) -> str:
+    """Name the variables, not just the places: a mixed set is usually a leftover export."""
+    found = {name: x_auth.source(name) for name in fields}
+    if not any(found.values()):
+        return "[dim]not set[/dim]"
+    missing = [x_auth.ENV_VARS[name] for name, origin in found.items() if origin is None]
+    from_env = [x_auth.ENV_VARS[name] for name, origin in found.items() if origin == "env"]
+    keychain = [name for name, origin in found.items() if origin == "keychain"]
+    if from_env and keychain:
+        where = f"{', '.join(from_env)} from env, the rest from the keychain"
+    elif from_env:
+        where = "all from env"
+    else:
+        where = "all from the keychain"
+    state = "complete" if not missing else f"incomplete, missing {', '.join(missing)}"
+    return f"{state} — {where}"
+
+
 @x_app.command("status")
 def x_status(
     limit: Annotated[int, typer.Option(min=1, max=100, help="Mentions to list.")] = 10,
@@ -1208,9 +1266,9 @@ def x_status(
     table = Table(show_header=False, show_edge=False, pad_edge=False)
     table.add_column("check", style="bold")
     table.add_column("value")
-    for field_name in x_auth.FIELDS:
-        origin = x_auth.source(field_name)
-        table.add_row(x_auth.ENV_VARS[field_name], origin or "[yellow]not set[/yellow]")
+    table.add_row("Auth mode", _x_auth_mode())
+    table.add_row("OAuth 1.0a", _credential_summary(x_auth.OAUTH1_FIELDS))
+    table.add_row("OAuth 2.0", _credential_summary(x_auth.OAUTH2_FIELDS))
     table.add_row(
         "Posting",
         "enabled (AGENT_SOCIAL=1)" if settings.kill_switches.agent_social else "off — dry run only",
@@ -1228,6 +1286,15 @@ def x_status(
         rows = x_store.recent(limit)
     finally:
         store.close()
+
+    if shadowing := [x_auth.ENV_VARS[f] for f in x_auth.FIELDS if x_auth.shadowed(f)]:
+        console.print(
+            Text(
+                f"{', '.join(shadowing)} in the environment override what is stored in the "
+                "keychain. Unset them, or the stored credentials are never used.",
+                style="yellow",
+            )
+        )
 
     if not rows:
         console.print("[dim]No mentions handled yet.[/dim]")

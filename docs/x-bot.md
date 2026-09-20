@@ -9,9 +9,12 @@ account, so treat the first live cycle as the real test.
 
 ## What it costs
 
-X moved to pay-per-use in February 2026. The legacy Free tier is write-only: it cannot read a
-mention timeline, so a reply bot cannot run on it at any volume. Enable pay-per-use billing
-first, or every read returns 403.
+X moved to pay-per-use in February 2026. Enable billing on the Project before anything
+else. A legacy Free project is documented as write-only — no mention timeline, so no reply
+bot — but in practice a project without billing has been seen returning 403 on *every* v2
+endpoint, posting included, with the misleading message "you must use keys and tokens from a
+developer App that is attached to a Project". Do not read that as a credential problem until
+you have ruled billing out.
 
 | Item | Rate | 50 mentions/day |
 |---|---|---|
@@ -27,28 +30,73 @@ estimate of what X billed for that cycle, using the rates in
 
 ## Setup
 
-Use a separate account for the bot, not your main one.
+Enable pay-per-use billing on the project first. Then pick a credential.
 
-1. In the X developer portal, enable pay-per-use billing on the project.
-2. On the app, set **User authentication settings** to OAuth 2.0 with **Read and Write**
-   permission, and add `http://127.0.0.1:8723/callback` as a callback URI. Regenerate the
-   app's tokens afterwards: tokens issued before the permission change keep the old scope.
-3. Authorize, signed in as the bot account:
+| | OAuth 1.0a | OAuth 2.0 |
+|---|---|---|
+| Where | the app's "Keys and tokens" tab | the PKCE browser flow |
+| Command | `socagents x login` | `socagents x auth` |
+| Expiry | never | access token ~2h, refresh token rotates every use |
+| Posts as | the account that owns the app | whichever account authorizes it |
+| Setup | paste four values | register a callback URI, sign in, approve |
+
+When both are stored, OAuth 1.0a wins: nothing about it can go stale halfway through a cron
+schedule. `socagents x status` shows which one is active.
+
+### OAuth 1.0a
+
+On the app, set **User authentication settings** to Read and Write, then **regenerate** the
+access token: a token created before the permission was raised keeps the old scope, and the
+tab still shows the permission it was created with. Then:
 
 ```bash
-socagents x auth           # PKCE flow in the browser → refresh token in the OS keychain
-socagents x status         # where each credential came from, and whether posting is on
+socagents x login          # API Key, API Key Secret, Access Token, Access Token Secret
+socagents x status
 ```
 
-`socagents x auth` asks for the Client ID (and the secret, if the app is a confidential
-client), opens the consent page, catches the redirect on port 8723, and stores the refresh
-token. Pass `--redirect-uri` if you registered a different one. `socagents x login` is the
-manual alternative when you already hold a refresh token.
+The access token belongs to the account that owns the app, so the bot tweets as that
+account. That is fine for a first test and wrong for a long-lived bot on its own handle.
 
-`X_CLIENT_ID`, `X_CLIENT_SECRET` and `X_REFRESH_TOKEN` work too and take priority over the
-keychain. Refresh tokens rotate on every use: the rotated one goes to the keychain, so an
-environment variable holding the old token goes stale after the first refresh and the run
-says so. For a read-only dry run, a short-lived `X_ACCESS_TOKEN` on its own is enough.
+### OAuth 2.0
+
+Use this to run the bot on a separate account. Add `http://127.0.0.1:8723/callback` as a
+callback URI on the app, then, in a browser signed in as the bot account:
+
+```bash
+socagents x auth           # PKCE flow → refresh token in the OS keychain
+```
+
+Pass `--redirect-uri` if you registered a different one.
+
+### Environment variables
+
+`X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET` for OAuth 1.0a;
+`X_CLIENT_ID`, `X_CLIENT_SECRET`, `X_REFRESH_TOKEN` for OAuth 2.0. They take priority over
+the keychain. An OAuth 2.0 refresh token rotates on every use and the new one goes to the
+keychain, so an environment variable holding the old one goes stale after the first refresh
+and the run says so. For a read-only dry run, a short-lived `X_OAUTH2_ACCESS_TOKEN` alone is
+enough.
+
+## Rehearse without X
+
+[`scripts/fake_x_api.py`](../scripts/fake_x_api.py) answers the three endpoints the bot uses
+with canned mentions, so the whole loop can be exercised before an account exists. It costs
+nothing and needs no credentials or billing.
+
+```bash
+python scripts/fake_x_api.py                 # one shell
+
+export X_API_URL=http://127.0.0.1:8799/2     # another shell
+export X_API_KEY=fake X_API_SECRET=fake X_ACCESS_TOKEN=fake X_ACCESS_TOKEN_SECRET=fake
+export SOCAGENTS_HOME=/tmp/socagents-rehearsal
+socagents x once --provider fixture
+```
+
+Two canned mentions come back: a question about SPY, which becomes a draft, and a prompt
+injection, which is skipped without calling a model. Fixture market data is synthetic, so
+the numbers in the draft are meaningless — rehearse with it, never post it.
+
+Unset `X_API_URL` and `SOCAGENTS_HOME` before touching the real API.
 
 ## Test the write path on its own
 
@@ -60,7 +108,12 @@ AGENT_SOCIAL=1 socagents x post "Test post from the SOCAgents desk bot."
 
 It shows the weighted character count and the price, warns if the text contains a link, and
 asks before sending. There is no agent behind this command: what you type is what goes out.
-A 403 here means the app permission or its tokens, not billing.
+
+A 403 here is usually the App's permission or its tokens — set user authentication to Read
+and Write, then regenerate the API key and secret followed by the access token and secret,
+in that order, because the access token is derived from the consumer key. If freshly
+regenerated keys from the right App still fail, the Project's billing is the cause, not the
+credentials.
 
 ## Dry run
 

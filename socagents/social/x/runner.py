@@ -19,7 +19,7 @@ from socagents.core.errors import ConfigError, SocAgentsError
 from socagents.core.timeutil import iso
 from socagents.db.store import Store
 from socagents.runtime.states import RunStatus
-from socagents.social.x.auth import TokenProvider, load_credentials
+from socagents.social.x.auth import load_authorizer
 from socagents.social.x.client import POST_USD, READ_USD, Mention, XClient, XRateLimited, XUser
 from socagents.social.x.compose import compose_reply
 from socagents.social.x.policy import XPolicy, decide
@@ -89,7 +89,7 @@ async def run_once(
         )
     owned = client is None
     if client is None:
-        client = XClient(TokenProvider(load_credentials()))
+        client = XClient(load_authorizer())
     store = Store(settings.db_path)
     x_store = XStore(store)
     try:

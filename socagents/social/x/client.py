@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from socagents import __version__
 from socagents.core.errors import SocAgentsError
-from socagents.social.x.auth import TokenProvider
+from socagents.social.x.auth import Authorizer
 
 DEFAULT_BASE_URL = "https://api.x.com/2"
 
@@ -89,13 +89,13 @@ def _parse_mention(tweet: dict[str, Any], users: dict[str, dict[str, Any]]) -> M
 class XClient:
     def __init__(
         self,
-        tokens: TokenProvider,
+        auth: Authorizer,
         *,
         base_url: str | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_s: float = 15.0,
     ) -> None:
-        self._tokens = tokens
+        self._auth = auth
         self._base = (base_url or os.environ.get("X_API_URL") or DEFAULT_BASE_URL).rstrip("/")
         self._client = httpx.AsyncClient(
             timeout=timeout_s,
@@ -108,11 +108,15 @@ class XClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
-        await self._tokens.aclose()
+        await self._auth.aclose()
 
     @property
     def notices(self) -> list[str]:
-        return self._tokens.notices
+        return self._auth.notices
+
+    @property
+    def auth_kind(self) -> str:
+        return self._auth.kind
 
     async def _request(
         self,
@@ -122,21 +126,24 @@ class XClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        token = await self._tokens.token()
+        url = f"{self._base}{path}"
+        authorization = await self._auth.header(method, url, params)
         try:
             response = await self._client.request(
-                method,
-                f"{self._base}{path}",
-                params=params,
-                json=json,
-                headers={"authorization": f"Bearer {token}"},
+                method, url, params=params, json=json, headers={"authorization": authorization}
             )
         except httpx.HTTPError as exc:
             raise XError(f"X is unreachable ({type(exc).__name__}).", code="x_unavailable") from exc
         if response.status_code == 401:
-            raise XAuthError("X rejected the access token. Run `socagents x login` again.")
+            raise XAuthError(
+                "X rejected the credentials (401). Check them with `socagents x status`, "
+                "then `socagents x login` or `socagents x auth` again."
+            )
         if response.status_code == 403:
-            raise XAccessError(f"{_forbidden_hint(method)} X said: {_detail(response)}")
+            detail = _detail(response)
+            raise XAccessError(
+                f"X refused this call (403): {detail} {_forbidden_hint(method, detail)}"
+            )
         if response.status_code == 429:
             reset = response.headers.get("x-rate-limit-reset")
             raise XRateLimited(
@@ -187,16 +194,31 @@ class XClient:
         return str(tweet_id)
 
 
-def _forbidden_hint(method: str) -> str:
-    """403 means different things for a read and a write, so say the right one."""
+def _forbidden_hint(method: str, detail: str) -> str:
+    """What to do about it. X's own wording comes first; this only adds the next step.
+
+    Guessing ahead of the detail was actively misleading once, so anything X explains for
+    itself gets matched here instead of covered by a generic hint.
+    """
+    lowered = detail.lower()
+    if "project" in lowered:
+        return (
+            "Two things produce this. Either the keys are from an App outside a Project — "
+            "regenerate the API key and secret, then the access token and secret, from the "
+            "App's own Keys and tokens tab. Or the Project has no v2 entitlement, which "
+            "since X moved to pay-per-use means billing is not enabled on it. If fresh keys "
+            "from the right App still fail on every endpoint, it is the second one."
+        )
+    if "not enrolled" in lowered or "client-not-enrolled" in lowered:
+        return "Enable pay-per-use billing for this Project in the developer portal."
     if method.upper() == "GET":
         return (
-            "X refused the read (403). The legacy Free tier is write-only: it cannot read "
-            "posts or mentions at all. Enable pay-per-use billing in the developer portal."
+            "The legacy Free tier is write-only and cannot read posts or mentions. Enable "
+            "pay-per-use billing in the developer portal."
         )
     return (
-        "X refused the post (403). Set the app's user authentication to Read and Write, then "
-        "regenerate its tokens: tokens issued before that change keep the old scope."
+        "Set the App's user authentication to Read and Write, then regenerate its tokens: "
+        "tokens issued before that change keep the old scope."
     )
 
 
