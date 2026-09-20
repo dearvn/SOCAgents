@@ -57,6 +57,8 @@ We assume:
 
 - Only Community reports can be shared, and shared copies contain regime, key levels, and scenarios only.
 - No public or shared output contains trade ideas or member data.
+- The [X reply bot](x-bot.md) posts nothing unless both `--post` and `AGENT_SOCIAL=1` are set. A mention is a stranger's text: it is wrapped as untrusted data, likely injection attempts are dropped rather than answered, and the reply prompt forbids recommendations, targets, and links. The data-delay note and the disclaimer are appended by code after the model, so a prompt cannot remove them.
+- Reply caps are per rolling 24 hours and include a per-author cap, so one person cannot drive the bot's spend.
 
 ## Privacy
 

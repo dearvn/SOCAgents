@@ -27,12 +27,13 @@ def env_flag(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class KillSwitches:
-    """Global switches. Orders, live trading, and the scheduler stay off until later phases."""
+    """Global switches. Orders, live trading, posting, and the scheduler are off by default."""
 
     agents: bool = True
     agent_orders: bool = False
     agent_live: bool = False
     agent_scheduler: bool = False
+    agent_social: bool = False
 
     @classmethod
     def from_env(cls) -> KillSwitches:
@@ -41,6 +42,7 @@ class KillSwitches:
             agent_orders=env_flag("AGENT_ORDERS", False),
             agent_live=env_flag("AGENT_LIVE", False),
             agent_scheduler=env_flag("AGENT_SCHEDULER", False),
+            agent_social=env_flag("AGENT_SOCIAL", False),
         )
 
 

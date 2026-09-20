@@ -120,6 +120,7 @@ Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` t
 - Your own MCP servers (for example a broker's positions) as read-only desk tools, with allowlists, order-verb blocking, and change detection
 - Any model: Anthropic, OpenAI, Google, or local models through Ollama, set per role
 - Deterministic risk engine, and key levels checked against the data they cite
+- X reply bot: answers mentions with the `ask` agent, off by default, with per-author and spend caps ([docs](docs/x-bot.md))
 - Markdown and JSON export of Community reports (without trade ideas)
 
 ## Roadmap

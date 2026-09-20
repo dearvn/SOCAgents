@@ -8,6 +8,7 @@ Public design documents for SOCAgents. The project is pre-alpha: SOC Desk, the d
 | [SOC Desk](soc-desk.md) | the multi-agent desk: roles, flow, profiles, Desk Report, units and visibility rules |
 | [Security](security.md) | threat model, risk engine, prompt injection, external MCP servers, skills, member data handling |
 | [CLI and MCP](cli.md) | commands, model selection, MCP server setup, external MCP tools, skills |
+| [X reply bot](x-bot.md) | answering mentions on X: credentials, cost, caps, dry run, going live |
 
 Principles that apply everywhere:
 - **The LLM proposes. Deterministic code disposes.** A code-based risk engine checks every idea, and nothing trades without approval.

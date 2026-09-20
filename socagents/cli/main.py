@@ -10,7 +10,7 @@ import sys
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import httpx
 import typer
@@ -60,6 +60,11 @@ from socagents.runtime.native import RunResult
 from socagents.runtime.states import RunStatus
 from socagents.session import purge_member_data
 from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_skill
+from socagents.social.x import auth as x_auth
+from socagents.social.x.compose import weighted_len
+from socagents.social.x.policy import REASONS, XPolicy
+from socagents.social.x.runner import CycleReport, run_once
+from socagents.social.x.storage import BOT_USERNAME, SINCE_ID, XStore
 from socagents.socswift_client.client import MemberInfo, MembershipError, SocSwiftClient
 
 app = typer.Typer(
@@ -78,6 +83,10 @@ mcp_app = typer.Typer(
 skills_app = typer.Typer(
     help="Strategy playbooks (SKILL.md) that guide desk roles.", no_args_is_help=True
 )
+x_app = typer.Typer(
+    help="X (Twitter) reply bot: poll mentions, answer with an agent, reply in the thread.",
+    no_args_is_help=True,
+)
 regime_app = typer.Typer(
     help="Research track: the online regime classifier's learning status.",
     no_args_is_help=True,
@@ -86,6 +95,7 @@ app.add_typer(report_app, name="report")
 app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(skills_app, name="skills")
+app.add_typer(x_app, name="x")
 app.add_typer(regime_app, name="regime")
 
 console = Console()
@@ -894,6 +904,230 @@ def mcp_remove(name: str) -> None:
     console.print(f"Removed {name}.")
 
 
+# x bot
+
+
+@x_app.command("login")
+def x_login() -> None:
+    """Store X OAuth 2.0 credentials in the OS keychain.
+
+    Create them in the X developer portal: an OAuth 2.0 app with Read and Write permission
+    and the scopes tweet.read tweet.write users.read offline.access. Refresh tokens rotate
+    on every use, so the stored one is replaced each time the bot refreshes.
+    """
+    client_id = typer.prompt("Client ID").strip()
+    client_secret = typer.prompt(
+        "Client secret (blank for a public client)", default="", hide_input=True
+    ).strip()
+    refresh_token = typer.prompt("Refresh token", hide_input=True).strip()
+    if not client_id or not refresh_token:
+        _fail(ConfigError("A client ID and a refresh token are both required."))
+    try:
+        x_auth.save("client_id", client_id)
+        if client_secret:
+            x_auth.save("client_secret", client_secret)
+        x_auth.save("refresh_token", refresh_token)
+    except SocAgentsError as exc:
+        _fail(exc)
+    console.print("Saved to the OS keychain. Check it with `socagents x status`.")
+
+
+@x_app.command("logout")
+def x_logout() -> None:
+    """Delete stored X credentials from the keychain."""
+    removed = x_auth.forget()
+    console.print(f"Removed {removed} stored X credential(s)." if removed else "Nothing stored.")
+
+
+def _x_policy(
+    max_replies: int, max_per_author: int, max_cost: float, max_age_hours: int, symbols: str | None
+) -> XPolicy:
+    allowed = None
+    if symbols:
+        allowed = frozenset(s.strip().upper() for s in symbols.split(",") if s.strip())
+    return XPolicy(
+        max_replies_per_day=max_replies,
+        max_replies_per_author_per_day=max_per_author,
+        max_cost_usd_per_day=max_cost,
+        max_age_hours=max_age_hours,
+        symbols=allowed,
+    )
+
+
+def _render_cycle(report: CycleReport) -> None:
+    table = Table(show_edge=False, pad_edge=False)
+    for column in ("mention", "from", "symbols", "decision", "why"):
+        table.add_column(column)
+    styles = {"replied": "green", "dry_run": "cyan", "skipped": "dim", "failed": "red"}
+    for outcome in report.outcomes:
+        table.add_row(
+            outcome.mention.id,
+            outcome.mention.handle,
+            ", ".join(outcome.symbols),
+            Text(outcome.decision, style=styles.get(outcome.decision, "")),
+            escape(outcome.error or REASONS.get(outcome.reason, outcome.reason)),
+        )
+    if report.outcomes:
+        console.print(table)
+    else:
+        console.print("[dim]No new mentions.[/dim]")
+
+    for outcome in report.outcomes:
+        for index, tweet in enumerate(outcome.tweets, start=1):
+            verb = "posted" if outcome.decision == "replied" else "draft"
+            console.print(
+                Panel(
+                    Text(tweet),
+                    title=f"{verb} → {outcome.mention.handle} · {weighted_len(tweet)}/280",
+                    title_align="left",
+                    subtitle=f"tweet {index}/{len(outcome.tweets)}",
+                    subtitle_align="right",
+                )
+            )
+    for notice in report.notices:
+        console.print(Text(notice, style="yellow"))
+    mode = "dry run, nothing sent" if report.dry_run else "live"
+    console.print(
+        f"[dim]{mode} · {report.fetched} read · {report.posted_tweets} posted · "
+        f"{report.drafted_tweets} drafted · model ${report.model_cost_usd:.4f} · "
+        f"X API ${report.api_cost_usd:.3f}[/dim]"
+    )
+    console.print("[dim]Not investment advice.[/dim]")
+
+
+@x_app.command("once")
+def x_once(
+    post: Annotated[
+        bool,
+        typer.Option(
+            "--post/--dry-run",
+            help="Send the replies. Also needs AGENT_SOCIAL=1. Default: draft only.",
+        ),
+    ] = False,
+    limit: Annotated[int, typer.Option(min=5, max=100, help="Mentions to read this cycle.")] = 25,
+    provider: ProviderOption = None,
+    model: ModelOption = None,
+    max_replies: Annotated[
+        int, typer.Option(min=0, max=500, help="Reply cap per rolling 24 hours.")
+    ] = 10,
+    max_per_author: Annotated[
+        int, typer.Option(min=0, max=100, help="Reply cap per author per rolling 24 hours.")
+    ] = 3,
+    max_cost: Annotated[
+        float, typer.Option(min=0.0, help="Model spend cap per rolling 24 hours, USD.")
+    ] = 2.0,
+    max_age_hours: Annotated[
+        int, typer.Option(min=1, max=168, help="Ignore mentions older than this.")
+    ] = 6,
+    symbols: Annotated[
+        str | None, typer.Option(help="Comma-separated allowlist, e.g. SPY,QQQ,SPX.")
+    ] = None,
+    tweets: Annotated[int, typer.Option(min=1, max=4, help="Tweets per reply.")] = 2,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the cycle as JSON.")] = False,
+) -> None:
+    """Read new mentions, draft a reply to each one that passes policy, and stop.
+
+    Drafts by default: nothing reaches X until you pass --post with AGENT_SOCIAL=1. Run it
+    from cron every few minutes rather than leaving it running.
+    """
+    settings = _settings()
+    try:
+        report = asyncio.run(
+            run_once(
+                settings=settings,
+                policy=_x_policy(max_replies, max_per_author, max_cost, max_age_hours, symbols),
+                post=post,
+                limit=limit,
+                provider_name=provider,
+                model_spec=model,
+                max_tweets=tweets,
+            )
+        )
+    except SocAgentsError as exc:
+        _fail(exc)
+    if as_json:
+        typer.echo(json.dumps(_cycle_json(report), indent=2))
+    else:
+        _render_cycle(report)
+    if any(o.decision == "failed" for o in report.outcomes):
+        raise typer.Exit(1)
+
+
+def _cycle_json(report: CycleReport) -> dict[str, Any]:
+    return {
+        "bot": {"id": report.bot.id, "username": report.bot.username},
+        "dry_run": report.dry_run,
+        "fetched": report.fetched,
+        "since_id": report.since_id,
+        "model_cost_usd": round(report.model_cost_usd, 6),
+        "api_cost_usd": round(report.api_cost_usd, 4),
+        "notices": report.notices,
+        "outcomes": [
+            {
+                "tweet_id": o.mention.id,
+                "author": o.mention.handle,
+                "text": o.mention.text,
+                "symbols": o.symbols,
+                "decision": o.decision,
+                "reason": o.reason,
+                "error": o.error,
+                "run_id": o.run_id,
+                "cost_usd": o.cost_usd,
+                "reply_tweet_id": o.reply_tweet_id,
+                "tweets": o.tweets,
+            }
+            for o in report.outcomes
+        ],
+    }
+
+
+@x_app.command("status")
+def x_status(
+    limit: Annotated[int, typer.Option(min=1, max=100, help="Mentions to list.")] = 10,
+) -> None:
+    """Credentials, cursor, and what the bot did in the last 24 hours."""
+    settings = _settings()
+    table = Table(show_header=False, show_edge=False, pad_edge=False)
+    table.add_column("check", style="bold")
+    table.add_column("value")
+    for field_name in x_auth.FIELDS:
+        origin = x_auth.source(field_name)
+        table.add_row(x_auth.ENV_VARS[field_name], origin or "[yellow]not set[/yellow]")
+    table.add_row(
+        "Posting",
+        "enabled (AGENT_SOCIAL=1)" if settings.kill_switches.agent_social else "off — dry run only",
+    )
+
+    store = Store(settings.db_path)
+    try:
+        x_store = XStore(store)
+        handle = x_store.get_state(BOT_USERNAME)
+        table.add_row("Account", f"@{handle}" if handle else "unknown until the first cycle")
+        table.add_row("Cursor", x_store.get_state(SINCE_ID) or "none — next cycle reads fresh")
+        table.add_row("Replies, last 24h", f"{x_store.replies_within(24)}")
+        table.add_row("Model spend, last 24h", f"${x_store.spend_within(24):.4f}")
+        console.print(table)
+        rows = x_store.recent(limit)
+    finally:
+        store.close()
+
+    if not rows:
+        console.print("[dim]No mentions handled yet.[/dim]")
+        return
+    recent = Table(title="Recent mentions", title_justify="left", show_edge=False, pad_edge=False)
+    for column in ("handled", "mention", "from", "decision", "why"):
+        recent.add_column(column)
+    for row in rows:
+        recent.add_row(
+            str(row["handled_at"])[:19],
+            str(row["tweet_id"]),
+            f"@{row['username']}" if row["username"] else str(row["author_id"]),
+            str(row["decision"]),
+            escape(REASONS.get(str(row["reason"]), str(row["reason"] or ""))),
+        )
+    console.print(recent)
+
+
 # doctor
 
 
@@ -971,6 +1205,7 @@ def doctor() -> None:
                 ("AGENT_ORDERS", ks.agent_orders),
                 ("AGENT_LIVE", ks.agent_live),
                 ("AGENT_SCHEDULER", ks.agent_scheduler),
+                ("AGENT_SOCIAL", ks.agent_social),
             )
         ),
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from socagents.core.config import Settings
 from socagents.core.errors import ConfigError
@@ -13,6 +14,7 @@ from socagents.runtime.budget import Budget
 from socagents.runtime.native import NativeLoopRuntime, RunResult
 from socagents.session import open_session, resolve_model_spec
 from socagents.templates.ask import ask_system_prompt, ask_user_message, brief_system_prompt
+from socagents.templates.x import x_reply_system_prompt
 from socagents.tools.catalog import full_registry
 from socagents.tools.gateway import ToolGateway
 
@@ -25,6 +27,12 @@ _NOT_TICKERS = frozenset(
         "WHO", "WHY",
     }
 )  # fmt: skip
+
+# System prompt per run kind. Anything not listed gets the plain ask prompt.
+_SYSTEM_PROMPTS: dict[str, Callable[..., str]] = {
+    "brief": brief_system_prompt,
+    "x_reply": x_reply_system_prompt,
+}
 
 
 def extract_symbols(text: str) -> list[str]:
@@ -41,6 +49,7 @@ async def run_ask(
     settings: Settings,
     max_steps: int = 6,
     kind: str = "ask",
+    user_message: str | None = None,
 ) -> RunResult:
     wanted = [s.strip().upper() for s in symbols if s.strip()] or extract_symbols(question)
     if not wanted:
@@ -69,13 +78,13 @@ async def run_ask(
                 prices=load_prices(settings.home),
                 role=kind,
             )
-            system = (brief_system_prompt if kind == "brief" else ask_system_prompt)(
+            system = _SYSTEM_PROMPTS.get(kind, ask_system_prompt)(
                 mode=provider.mode, provider=provider.name
             )
             result = await runtime.run(
                 kind=kind,
                 system=system,
-                user_message=ask_user_message(question, wanted),
+                user_message=user_message or ask_user_message(question, wanted),
                 provider=provider,
                 input_meta={
                     "question": question,
