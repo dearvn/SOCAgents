@@ -38,7 +38,13 @@ from socagents.social.x.auth import (
     load_oauth1,
     load_oauth2,
 )
-from socagents.social.x.client import Mention, XAccessError, XClient, XRateLimited
+from socagents.social.x.client import (
+    Mention,
+    XAccessError,
+    XAuthError,
+    XClient,
+    XRateLimited,
+)
 from socagents.social.x.compose import compose_reply, mention_body, strip_for_x, weighted_len
 from socagents.social.x.oauth import authorize_url, exchange_code, new_pkce, wait_for_code
 from socagents.social.x.oauth1 import encode, signature_base
@@ -341,6 +347,20 @@ async def test_rate_limit_carries_the_reset() -> None:
     finally:
         await client.aclose()
     assert caught.value.reset_at == 1750000000
+
+
+async def test_unauthorized_says_which_credentials_and_what_x_said() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"title": "Unauthorized", "detail": "no user context"})
+
+    client = make_client(httpx.MockTransport(handler))
+    try:
+        with pytest.raises(XAuthError) as caught:
+            await client.me()
+    finally:
+        await client.aclose()
+    assert "oauth2 credentials (401)" in str(caught.value)
+    assert "no user context" in str(caught.value)
 
 
 async def test_post_sends_the_reply_reference() -> None:

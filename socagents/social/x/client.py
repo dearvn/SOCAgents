@@ -136,8 +136,9 @@ class XClient:
             raise XError(f"X is unreachable ({type(exc).__name__}).", code="x_unavailable") from exc
         if response.status_code == 401:
             raise XAuthError(
-                "X rejected the credentials (401). Check them with `socagents x status`, "
-                "then `socagents x login` or `socagents x auth` again."
+                f"X rejected the {self._auth.kind} credentials (401): {_detail(response)} "
+                "Check what is stored with `socagents x status`, then `socagents x login` "
+                "or `socagents x auth` again."
             )
         if response.status_code == 403:
             detail = _detail(response)

@@ -64,6 +64,8 @@ from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_
 from socagents.social.x import auth as x_auth
 from socagents.social.x.client import POST_USD, POST_WITH_LINK_USD, XClient, XUser
 from socagents.social.x.compose import has_link, weighted_len
+from socagents.social.x.flow import FlowReport, FlowSource, FlowStore, run_flow_once
+from socagents.social.x.flow_source import JsonFileSource, PostgresFlowSource
 from socagents.social.x.oauth import (
     DEFAULT_REDIRECT_URI,
     authorize_url,
@@ -93,7 +95,7 @@ skills_app = typer.Typer(
     help="Strategy playbooks (SKILL.md) that guide desk roles.", no_args_is_help=True
 )
 x_app = typer.Typer(
-    help="X (Twitter) reply bot: poll mentions, answer with an agent, reply in the thread.",
+    help="X (Twitter) bot: reply to mentions in the thread, and post an Options Flow digest.",
     no_args_is_help=True,
 )
 regime_app = typer.Typer(
@@ -1231,6 +1233,108 @@ def _cycle_json(report: CycleReport) -> dict[str, Any]:
     }
 
 
+@x_app.command("flow")
+def x_flow(
+    post: Annotated[
+        bool,
+        typer.Option(
+            "--post/--dry-run",
+            help="Send the tweet. Also needs AGENT_SOCIAL=1. Default: draft only.",
+        ),
+    ] = False,
+    min_premium: Annotated[
+        float, typer.Option(min=0.0, help="Smallest premium worth a line, USD.")
+    ] = 100_000,
+    lines: Annotated[int, typer.Option(min=1, max=8, help="Most prints per tweet.")] = 4,
+    max_age: Annotated[
+        int,
+        typer.Option(min=5, max=1440, help="Minutes to look back. Older flow is never posted."),
+    ] = 30,
+    header: Annotated[
+        str | None, typer.Option(help="A first line, e.g. 'Options Flow · last 15m'.")
+    ] = None,
+    from_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--from-file",
+            exists=True,
+            dir_okay=False,
+            help="Read prints from a JSON file instead of the database (rehearsal).",
+        ),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the cycle as JSON.")] = False,
+) -> None:
+    """Post the largest new Options Flow prints as one tweet, and stop.
+
+    Reads FLOW_DATABASE_URL (a read-only Postgres role). Drafts by default. Run it from cron
+    or a Kubernetes CronJob every 15 minutes; a cycle with no new flow posts nothing.
+    """
+    settings = _settings()
+    try:
+        source: FlowSource = JsonFileSource(from_file) if from_file else PostgresFlowSource()
+        report = asyncio.run(
+            run_flow_once(
+                settings=settings,
+                source=source,
+                post=post,
+                min_premium=min_premium,
+                max_lines=lines,
+                max_age_minutes=max_age,
+                header=header,
+            )
+        )
+    except SocAgentsError as exc:
+        _fail(exc)
+    if as_json:
+        typer.echo(json.dumps(_flow_json(report), indent=2))
+        return
+    if report.text:
+        verb = "posted" if report.tweet_id else "draft"
+        console.print(
+            Panel(
+                Text(report.text),
+                title=f"{verb} · {weighted_len(report.text)}/280",
+                title_align="left",
+            )
+        )
+    messages = {
+        "no_new_flow": "No new flow since the last post. Nothing sent.",
+        "nothing_fits": "No print fits in one tweet. Nothing sent.",
+        "drafted": "Dry run, nothing sent. Pass --post with AGENT_SOCIAL=1 to send it.",
+    }
+    if report.tweet_id:
+        store = Store(settings.db_path)
+        try:
+            handle = XStore(store).get_state(BOT_USERNAME)
+        finally:
+            store.close()
+        where = (
+            f"https://x.com/{handle}/status/{report.tweet_id}"
+            if handle
+            else f"tweet {report.tweet_id}"
+        )
+        console.print(f"Posted: {where}")
+    else:
+        console.print(f"[dim]{messages.get(report.reason, report.reason)}[/dim]")
+    console.print(
+        f"[dim]{report.fetched} read since {fmt_et(report.since)} · "
+        f"{len(report.prints)} in the tweet · X API ${report.api_cost_usd:.3f}[/dim]"
+    )
+
+
+def _flow_json(report: FlowReport) -> dict[str, Any]:
+    return {
+        "dry_run": report.dry_run,
+        "since": report.since.isoformat(),
+        "fetched": report.fetched,
+        "reason": report.reason,
+        "tweet_id": report.tweet_id,
+        "text": report.text,
+        "print_ids": [p.id for p in report.prints],
+        "api_cost_usd": report.api_cost_usd,
+    }
+
+
 def _x_auth_mode() -> str:
     if x_auth.load_oauth1() is not None:
         return "OAuth 1.0a — posts as the account that owns the app"
@@ -1282,6 +1386,7 @@ def x_status(
         table.add_row("Cursor", x_store.get_state(SINCE_ID) or "none — next cycle reads fresh")
         table.add_row("Replies, last 24h", f"{x_store.replies_within(24)}")
         table.add_row("Model spend, last 24h", f"${x_store.spend_within(24):.4f}")
+        table.add_row("Flow posts, last 24h", f"{FlowStore(store).posts_within(24)}")
         console.print(table)
         rows = x_store.recent(limit)
     finally:

@@ -35,8 +35,10 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp>=2.2,<3"]
+flow = ["psycopg[binary]>=3.2,<4"]
 dev = [
     "mcp>=2.2,<3",
+    "psycopg[binary]>=3.2,<4",
     "mypy>=1.11",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",

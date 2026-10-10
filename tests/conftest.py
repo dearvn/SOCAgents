@@ -37,6 +37,7 @@ ENV_VARS = (
     "X_REFRESH_TOKEN",
     "X_ACCESS_TOKEN",
     "X_API_URL",
+    "FLOW_DATABASE_URL",
 )
 
 

@@ -174,10 +174,79 @@ back to the data it came from with `socagents report` and the store.
 Character counting uses X's weighted length, where most Latin text counts as one per character
 and everything else as two.
 
+## Options Flow digest
+
+`socagents x flow` posts new Options Flow prints as one tweet, largest premium first:
+
+```text
+🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @27.45 → Bearish
+🔴 $219K CALL BID | $SPXW 7790C 10/23 @78.00 → Hedge/Weak Bearish
+🟢 $216K PUT BID | $QQQ 750P 10/16 @5.39 → Hedge/Weak Bullish
+Not investment advice.
+```
+
+ASK means the option was bought at the ask, BID that it was sold at the bid. The label is the
+engine's impact slug with "Pressure" dropped; green when it reads bullish, red when bearish.
+
+The prints come from the `market_pressure_aggregates` table an options-flow engine writes:
+rows with `flow_type = 'option_flow'` that were broadcast (`notified = true`). Give the job a
+role that can read that table and nothing else:
+
+```sql
+CREATE ROLE flow_reader LOGIN PASSWORD '...';
+GRANT CONNECT ON DATABASE <db> TO flow_reader;
+GRANT USAGE ON SCHEMA public TO flow_reader;
+GRANT SELECT ON market_pressure_aggregates TO flow_reader;
+```
+
+```bash
+pip install 'socagents[flow]'                 # the Postgres driver
+export FLOW_DATABASE_URL='postgresql://flow_reader:...@host:5432/db'
+socagents x flow                               # draft from the last 30 minutes
+socagents x flow --from-file flow.json         # rehearse with rows shaped like the query
+AGENT_SOCIAL=1 socagents x flow --post         # send it
+```
+
+Each cycle reads prints newer than the last posted one, but never older than `--max-age`
+minutes (30 by default), so a job that was down for a day does not post yesterday's flow. A
+cycle with nothing new posts nothing, which also keeps X from rejecting duplicate text. A
+dry run writes no state and can be repeated. A failed post leaves the cursor where it was, so
+the same prints are tried again next cycle while they are still fresh.
+
+Every tweet costs $0.015. Every 15 minutes through a 6.5-hour session that is at most 27 posts
+a day, about $8 a month. Keep links out of the tweet: one link raises the price to $0.20.
+
+### Running it on a server
+
+The cycle is one-shot, so a scheduler runs it and a laptop can stay off.
+`deploy/k8s/x-flow-cronjob.yaml` runs it every 15 minutes, 09:00–16:45 New York time on
+weekdays, from the image the repo's `Dockerfile` builds. Credentials come from a Secret
+(`deploy/k8s/x-flow-secret.template.yaml`) because a container has no OS keychain; use OAuth
+1.0a there, since an OAuth 2.0 refresh token rotates and cannot be written back to a Secret.
+State (cursor, posted prints) lives on a small volume at `/data`.
+
+```bash
+docker build -t REGISTRY/socagents:latest . && docker push REGISTRY/socagents:latest
+kubectl apply -f /tmp/x-flow-secret.yaml       # the filled-in template, never committed
+kubectl apply -f deploy/k8s/x-flow-cronjob.yaml
+kubectl create job --from=cronjob/socagents-x-flow x-flow-now   # one run, right now
+kubectl logs job/x-flow-now
+```
+
+Pause with `kubectl patch cronjob socagents-x-flow -p '{"spec":{"suspend":true}}'`.
+Without Kubernetes, a crontab does the same job (`CRON_TZ` needs cronie or systemd-cron; with
+Debian's cron, set the server's clock to New York time instead):
+
+```cron
+CRON_TZ=America/New_York
+*/15 9-16 * * 1-5  docker run --rm --env-file /etc/socagents-x.env -e AGENT_SOCIAL=1 -v socagents-data:/data REGISTRY/socagents:latest x flow --post
+```
+
 ## State and audit
 
-Two tables in the usual SQLite store: `x_state` (mention cursor, bot account) and `x_mentions`
-(one row per mention seen, with the decision, the reason, the run id, the reply, and the cost).
+Tables in the usual SQLite store: `x_state` (mention cursor, flow cursor, bot account),
+`x_mentions` (one row per mention seen, with the decision, the reason, the run id, the reply,
+and the cost), and `x_flow_posts` (one row per flow print posted, with its tweet id).
 
 ```bash
 socagents x status --limit 20
@@ -190,6 +259,7 @@ failed is not retried; its row holds the error.
 
 - Label the account as automated in its profile, as X's automation rules require.
 - Reply only to mentions. No unsolicited replies, no automated DMs, no repeated identical posts.
+  The flow digest posts to the account's own timeline and only when there is new flow.
 - Community data is delayed, so replies are educational. Keep the disclaimer.
 
 ## Known gaps

@@ -1,0 +1,54 @@
+# Posts the Options Flow digest to X every 15 minutes during US market hours.
+# Pause without deleting:  kubectl patch cronjob socagents-x-flow -p '{"spec":{"suspend":true}}'
+# Kill switch:             set AGENT_SOCIAL to "0" below and re-apply (runs become dry runs).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: socagents-x-flow-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: socagents-x-flow
+spec:
+  schedule: "*/15 9-16 * * 1-5"
+  timeZone: "America/New_York"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 240
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 10001
+            fsGroup: 10001
+          containers:
+            - name: x-flow
+              image: REGISTRY/socagents:latest  # build from the repo's Dockerfile
+              args: ["x", "flow", "--post", "--min-premium", "100000", "--lines", "4"]
+              env:
+                - name: AGENT_SOCIAL
+                  value: "1"
+              envFrom:
+                - secretRef:
+                    name: socagents-x-flow
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              resources:
+                requests: { cpu: 50m, memory: 96Mi }
+                limits: { memory: 256Mi }
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: socagents-x-flow-data
