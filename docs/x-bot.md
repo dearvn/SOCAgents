@@ -181,9 +181,9 @@ first post of each New York day is the main post:
 
 ```text
 Options Flow · Mon 10/12 🧵
-🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @27.45 → Bearish
-🔴 $219K CALL BID | SPXW 7790C 10/23 @78.00 → Hedge/Weak Bearish
-🟢 $216K PUT BID | QQQ 750P 10/16 @5.39 → Hedge/Weak Bullish
+🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @ 27.45 → Bearish
+🔴 $219K CALL BID | SPXW 7790C 10/23 @ 78.00 → Hedge/Weak Bearish
+🟢 $216K PUT BID | QQQ 750P 10/16 @ 5.39 → Hedge/Weak Bullish
 Not investment advice.
 ```
 
@@ -192,7 +192,8 @@ timeline shows one post a day and the rest of the flow sits under it. The next d
 new main post. `--no-thread` posts each cycle on its own instead.
 
 X refuses a post with more than one cashtag, so only the first line of each tweet has the
-`$` (`$TSLA`); the other lines name the symbol plainly (`SPXW`). ASK means the option was bought at the ask, BID that it was sold at the bid. The label is the
+`$` (`$TSLA`); the other lines name the symbol plainly (`SPXW`). The price is written
+`@ 27.45` with a space, because X reads `@27` as a mention of the account @27. ASK means the option was bought at the ask, BID that it was sold at the bid. The label is the
 engine's impact slug with "Pressure" dropped; green when it reads bullish, red when bearish.
 
 The prints come from the `market_pressure_aggregates` table an options-flow engine writes:

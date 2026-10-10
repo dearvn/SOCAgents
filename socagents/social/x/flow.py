@@ -2,7 +2,7 @@
 
 One line per print, in the shape the desk already reads::
 
-    🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @27.45 → Bearish
+    🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @ 27.45 → Bearish
 
 One thread per trading day: the first post of the day (New York time) is the main post, with
 a dated header and the disclaimer. Every later cycle that day replies to that main post, so
@@ -124,7 +124,7 @@ def flow_line(p: FlowPrint, *, today: date, cashtag: bool = True) -> str:
     return (
         f"{dot} {fmt_premium(p.premium)} {side} {p.direction.upper()} | "
         f"{'$' if cashtag else ''}{p.symbol.upper()} {fmt_strike(p.strike)}{side[:1]} "
-        f"{fmt_expiration(p.expiration, today=today)} @{p.price:.2f} → {label}"
+        f"{fmt_expiration(p.expiration, today=today)} @ {p.price:.2f} → {label}"
     )
 
 

@@ -102,13 +102,13 @@ def live(tmp_path: Path) -> Settings:
 
 def test_lines_match_the_desk_format() -> None:
     assert flow_line(TSLA, today=TODAY) == (
-        "🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @27.45 → Bearish"
+        "🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @ 27.45 → Bearish"
     )
     assert flow_line(SPXW, today=TODAY) == (
-        "🔴 $219K CALL BID | $SPXW 7790C 10/23 @78.00 → Hedge/Weak Bearish"
+        "🔴 $219K CALL BID | $SPXW 7790C 10/23 @ 78.00 → Hedge/Weak Bearish"
     )
     assert flow_line(QQQ, today=TODAY) == (
-        "🟢 $216K PUT BID | $QQQ 750P 10/16 @5.39 → Hedge/Weak Bullish"
+        "🟢 $216K PUT BID | $QQQ 750P 10/16 @ 5.39 → Hedge/Weak Bullish"
     )
 
 
@@ -437,3 +437,12 @@ async def test_cashtag_refusal_does_not_blame_the_app_permissions() -> None:
         await client.aclose()
     assert "one cashtag" in str(caught.value)
     assert "Read and Write" not in str(caught.value)
+
+
+def test_price_never_reads_as_a_mention() -> None:
+    # "@11.32" makes X link the account @11 and notify it.
+    import re
+
+    text, _, _ = compose_flow([TSLA, SPXW, QQQ], today=TODAY)
+    assert not re.search(r"@\w", text)
+    assert "@ 27.45" in text
