@@ -143,7 +143,7 @@ class XClient:
         if response.status_code == 403:
             detail = _detail(response)
             raise XAccessError(
-                f"X refused this call (403): {detail} {_forbidden_hint(method, detail)}"
+                f"X refused this call (403): {detail} {_forbidden_hint(method, detail)}".rstrip()
             )
         if response.status_code == 429:
             reset = response.headers.get("x-rate-limit-reset")
@@ -212,6 +212,8 @@ def _forbidden_hint(method: str, detail: str) -> str:
         )
     if "not enrolled" in lowered or "client-not-enrolled" in lowered:
         return "Enable pay-per-use billing for this Project in the developer portal."
+    if "cashtag" in lowered or "duplicate" in lowered:
+        return ""  # a rule about the post's content, which X has already named
     if method.upper() == "GET":
         return (
             "The legacy Free tier is write-only and cannot read posts or mentions. Enable "

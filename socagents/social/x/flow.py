@@ -116,13 +116,14 @@ def fmt_expiration(expiration: str, *, today: date) -> str:
     return expiration
 
 
-def flow_line(p: FlowPrint, *, today: date) -> str:
+def flow_line(p: FlowPrint, *, today: date, cashtag: bool = True) -> str:
+    """X allows one cashtag per post, so only the first line of a tweet gets the ``$``."""
     label = impact_label(p)
     dot = "🟢" if "Bullish" in label else "🔴" if "Bearish" in label else "⚪"
     side = p.option_type.upper()
     return (
         f"{dot} {fmt_premium(p.premium)} {side} {p.direction.upper()} | "
-        f"${p.symbol.upper()} {fmt_strike(p.strike)}{side[:1]} "
+        f"{'$' if cashtag else ''}{p.symbol.upper()} {fmt_strike(p.strike)}{side[:1]} "
         f"{fmt_expiration(p.expiration, today=today)} @{p.price:.2f} → {label}"
     )
 
@@ -134,8 +135,8 @@ def compose_flow(
     max_lines: int = 4,
     header: str | None = None,
     footer: str | None = DISCLAIMER,
-) -> tuple[str, list[FlowPrint]]:
-    """Pack the largest prints into one tweet. Returns the text and the prints it carries."""
+) -> tuple[str, list[FlowPrint], list[str]]:
+    """Pack the largest prints into one tweet: the text, the prints it carries, their lines."""
     fixed = [part for part in (header,) if part]
     tail = [footer] if footer else []
     used: list[FlowPrint] = []
@@ -143,14 +144,14 @@ def compose_flow(
     for p in sorted(prints, key=lambda x: x.premium, reverse=True):
         if len(used) >= max_lines:
             break
-        candidate = "\n".join([*fixed, *lines, flow_line(p, today=today), *tail])
-        if weighted_len(candidate) > X_MAX_WEIGHT:
+        line = flow_line(p, today=today, cashtag=not lines)
+        if weighted_len("\n".join([*fixed, *lines, line, *tail])) > X_MAX_WEIGHT:
             continue
-        lines.append(flow_line(p, today=today))
+        lines.append(line)
         used.append(p)
     if not used:
-        return "", []
-    return "\n".join([*fixed, *lines, *tail]), used
+        return "", [], []
+    return "\n".join([*fixed, *lines, *tail]), used, lines
 
 
 # state
@@ -270,12 +271,12 @@ async def run_flow_once(
         root = flow_store.thread_root(today) if thread else None
         if root:
             # A reply: the main post already carries the date and the disclaimer.
-            text, used = compose_flow(
+            text, used, lines = compose_flow(
                 fresh, today=today, max_lines=max_lines, header=header, footer=None
             )
         else:
             first = header or (root_header(today) if thread else None)
-            text, used = compose_flow(fresh, today=today, max_lines=max_lines, header=first)
+            text, used, lines = compose_flow(fresh, today=today, max_lines=max_lines, header=first)
         report.text, report.prints, report.in_reply_to = text, used, root
         if not used:
             report.reason = "nothing_fits"
@@ -296,7 +297,7 @@ async def run_flow_once(
                 await client.aclose()
         if thread and not root:
             flow_store.set_thread_root(today, report.tweet_id)
-        flow_store.record(report.tweet_id, used, [flow_line(p, today=today) for p in used])
+        flow_store.record(report.tweet_id, used, lines)
         flow_store.set_cursor(max(_utc(p.created_at) for p in fetched))
         report.reason = "posted"
         return report

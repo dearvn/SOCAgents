@@ -153,7 +153,7 @@ def test_compose_puts_the_largest_first_and_stays_under_280() -> None:
         FlowPrint(**{**TSLA.__dict__, "id": f"p{i}", "premium": 100_000 + i * 1000})
         for i in range(10)
     ]
-    text, used = compose_flow(many, today=TODAY, max_lines=8)
+    text, used, _ = compose_flow(many, today=TODAY, max_lines=8)
     assert weighted_len(text) <= 280
     assert text.endswith("Not investment advice.")
     assert used[0].premium == max(p.premium for p in many)
@@ -161,7 +161,7 @@ def test_compose_puts_the_largest_first_and_stays_under_280() -> None:
 
 
 def test_compose_honours_the_line_cap_and_header() -> None:
-    text, used = compose_flow([QQQ, TSLA, SPXW], today=TODAY, max_lines=2, header="Options Flow")
+    text, used, _ = compose_flow([QQQ, TSLA, SPXW], today=TODAY, max_lines=2, header="Options Flow")
     assert [p.id for p in used] == ["a1", "a2"]
     assert text.splitlines()[0] == "Options Flow"
 
@@ -214,7 +214,7 @@ async def test_live_cycle_posts_once_then_waits_for_new_flow(tmp_path: Path) -> 
     assert second.reason == "no_new_flow"
     assert third.reason == "posted"
     assert len(posts) == 2
-    assert "$QQQ" in posts[1] and "$TSLA" not in posts[1]
+    assert "$QQQ" in posts[1] and "TSLA" not in posts[1]
 
 
 async def test_old_flow_is_never_posted(tmp_path: Path) -> None:
@@ -409,3 +409,31 @@ async def test_no_thread_posts_standalone(tmp_path: Path) -> None:
         await client.aclose()
     assert replies == [None, None]
     assert posts[0].startswith("🔴 $255K")
+
+
+def test_only_the_first_line_carries_a_cashtag() -> None:
+    # X refuses a post with more than one cashtag (403).
+    text, used, lines = compose_flow([TSLA, SPXW, QQQ], today=TODAY, header="Options Flow")
+    assert len(used) == 3
+    assert text.count("$TSLA") == 1
+    assert "| SPXW 7790C" in text and "| QQQ 750P" in text
+    assert sum(1 for w in text.split() if w.startswith("$") and w[1:2].isalpha()) == 1
+    assert lines[0].startswith("🔴 $255K PUT ASK | $TSLA")
+
+
+async def test_cashtag_refusal_does_not_blame_the_app_permissions() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={"detail": "Posts are limited to a maximum of one cashtag ($SYMBOL)."},
+        )
+
+    tokens = TokenProvider(XCredentials(access_token="static"))
+    client = XClient(tokens, base_url="https://api.test/2", transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(Exception) as caught:
+            await client.post("x")
+    finally:
+        await client.aclose()
+    assert "one cashtag" in str(caught.value)
+    assert "Read and Write" not in str(caught.value)
