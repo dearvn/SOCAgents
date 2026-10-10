@@ -4,6 +4,10 @@ One line per print, in the shape the desk already reads::
 
     🔴 $255K PUT ASK | $TSLA 380P 1/15/27 @27.45 → Bearish
 
+One thread per trading day: the first post of the day (New York time) is the main post, with
+a dated header and the disclaimer. Every later cycle that day replies to that main post, so
+the timeline shows one post a day and the rest of the flow sits under it.
+
 Like the reply bot, a cycle is one-shot and drafts by default. Posting needs ``--post`` and
 ``AGENT_SOCIAL=1``. A dry run writes nothing, so it can be repeated against the same data.
 
@@ -20,13 +24,15 @@ from typing import Protocol
 
 from socagents.core.config import Settings
 from socagents.core.errors import ConfigError
-from socagents.core.timeutil import iso, utcnow
+from socagents.core.timeutil import ET, iso, utcnow
 from socagents.db.store import Store
 from socagents.social.x.client import POST_USD, XClient
 from socagents.social.x.compose import DISCLAIMER, X_MAX_WEIGHT, weighted_len
 from socagents.social.x.storage import XStore
 
 FLOW_CURSOR = "flow_cursor"
+FLOW_THREAD_DATE = "flow_thread_date"
+FLOW_THREAD_ROOT = "flow_thread_root"
 
 FLOW_SCHEMA = """
 CREATE TABLE IF NOT EXISTS x_flow_posts (
@@ -164,6 +170,16 @@ class FlowStore:
     def set_cursor(self, at: datetime) -> None:
         self.x.set_state(FLOW_CURSOR, iso(at))
 
+    def thread_root(self, day: date) -> str | None:
+        """Today's main post, if one went out. A root from another day is not reused."""
+        if self.x.get_state(FLOW_THREAD_DATE) != day.isoformat():
+            return None
+        return self.x.get_state(FLOW_THREAD_ROOT)
+
+    def set_thread_root(self, day: date, tweet_id: str) -> None:
+        self.x.set_state(FLOW_THREAD_ROOT, tweet_id)
+        self.x.set_state(FLOW_THREAD_DATE, day.isoformat())
+
     def posted(self, print_id: str) -> bool:
         row = self._db.execute(
             "SELECT 1 FROM x_flow_posts WHERE print_id = ?", (print_id,)
@@ -198,11 +214,16 @@ class FlowReport:
     text: str = ""
     prints: list[FlowPrint] = field(default_factory=list)
     tweet_id: str | None = None
+    in_reply_to: str | None = None  # today's main post, when this one is a reply
     reason: str = ""  # posted | drafted | no_new_flow | nothing_fits
 
     @property
     def api_cost_usd(self) -> float:
         return POST_USD if self.tweet_id else 0.0
+
+
+def root_header(day: date) -> str:
+    return f"Options Flow · {day.strftime('%a')} {day.month}/{day.day} 🧵"
 
 
 def _utc(dt: datetime) -> datetime:
@@ -220,6 +241,7 @@ async def run_flow_once(
     max_lines: int = 4,
     max_age_minutes: int = 30,
     header: str | None = None,
+    thread: bool = True,
     now: datetime | None = None,
 ) -> FlowReport:
     if post and not settings.kill_switches.agent_social:
@@ -244,9 +266,17 @@ async def run_flow_once(
             report.reason = "no_new_flow"
             return report
 
-        today = now.astimezone(UTC).date()
-        text, used = compose_flow(fresh, today=today, max_lines=max_lines, header=header)
-        report.text, report.prints = text, used
+        today = now.astimezone(ET).date()
+        root = flow_store.thread_root(today) if thread else None
+        if root:
+            # A reply: the main post already carries the date and the disclaimer.
+            text, used = compose_flow(
+                fresh, today=today, max_lines=max_lines, header=header, footer=None
+            )
+        else:
+            first = header or (root_header(today) if thread else None)
+            text, used = compose_flow(fresh, today=today, max_lines=max_lines, header=first)
+        report.text, report.prints, report.in_reply_to = text, used, root
         if not used:
             report.reason = "nothing_fits"
             return report
@@ -260,10 +290,12 @@ async def run_flow_once(
 
             client = XClient(load_authorizer())
         try:
-            report.tweet_id = await client.post(text)
+            report.tweet_id = await client.post(text, in_reply_to=root)
         finally:
             if owned:
                 await client.aclose()
+        if thread and not root:
+            flow_store.set_thread_root(today, report.tweet_id)
         flow_store.record(report.tweet_id, used, [flow_line(p, today=today) for p in used])
         flow_store.set_cursor(max(_utc(p.created_at) for p in fetched))
         report.reason = "posted"

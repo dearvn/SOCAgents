@@ -1,0 +1,73 @@
+# Same job as x-flow-cronjob.yaml without building an image: a stock Python image installs
+# SOCAgents at a pinned commit into a venv on the volume. Only the first run after a REF
+# change downloads anything; later runs reuse the venv.
+#   sed "s/SOCAGENTS_REF_VALUE/$(git rev-parse HEAD)/" deploy/k8s/x-flow-cronjob.pip.yaml | kubectl apply -f -
+# Needs the Secret from x-flow-secret.template.yaml. Pause:
+#   kubectl patch cronjob socagents-x-flow -p '{"spec":{"suspend":true}}'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: socagents-x-flow-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: socagents-x-flow
+spec:
+  schedule: "*/15 9-16 * * 1-5"
+  timeZone: "America/New_York"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: x-flow
+              image: python:3.12-slim
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  V="/data/venv-$SOCAGENTS_REF"
+                  if [ ! -f "$V/.ok" ]; then
+                    rm -rf "$V" && python -m venv "$V"
+                    "$V/bin/pip" install -q --disable-pip-version-check \
+                      "socagents[flow] @ https://github.com/dearvn/SOCAgents/archive/$SOCAGENTS_REF.tar.gz"
+                    touch "$V/.ok"
+                    find /data -maxdepth 1 -name 'venv-*' ! -name "venv-$SOCAGENTS_REF" -exec rm -rf {} +
+                  fi
+                  exec "$V/bin/socagents" "$@"
+                - sh
+              args: ["x", "flow", "--post", "--min-premium", "100000", "--lines", "4"]
+              env:
+                - name: SOCAGENTS_REF
+                  value: "SOCAGENTS_REF_VALUE"
+                - name: SOCAGENTS_HOME
+                  value: /data/home
+                - name: AGENT_SOCIAL
+                  value: "1"
+              envFrom:
+                - secretRef:
+                    name: socagents-x-flow
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits: { memory: 512Mi }
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: socagents-x-flow-data

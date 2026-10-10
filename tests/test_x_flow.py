@@ -81,9 +81,12 @@ class ListSource:
         return sorted(keep, key=lambda p: p.premium, reverse=True)[:limit]
 
 
-def x_poster(posts: list[str]) -> XClient:
+def x_poster(posts: list[str], replies: list[str | None] | None = None) -> XClient:
     def handler(request: httpx.Request) -> httpx.Response:
-        posts.append(json.loads(request.content)["text"])
+        body = json.loads(request.content)
+        posts.append(body["text"])
+        if replies is not None:
+            replies.append((body.get("reply") or {}).get("in_reply_to_tweet_id"))
         return httpx.Response(201, json={"data": {"id": f"t{len(posts)}"}})
 
     tokens = TokenProvider(XCredentials(access_token="static"))
@@ -172,7 +175,8 @@ async def test_dry_run_drafts_and_writes_no_state(settings: Settings) -> None:
     second = await run_flow_once(settings=settings, source=source, now=NOW)
     assert first.reason == second.reason == "drafted"
     assert first.text == second.text
-    assert first.text.splitlines()[0].startswith("🔴 $255K PUT ASK | $TSLA")
+    assert first.text.splitlines()[0] == "Options Flow · Fri 10/9 🧵"
+    assert first.text.splitlines()[1].startswith("🔴 $255K PUT ASK | $TSLA")
     assert first.tweet_id is None
 
 
@@ -314,3 +318,94 @@ def test_x_flow_without_a_database_explains_what_to_set() -> None:
     result = runner.invoke(app, ["x", "flow"])
     assert result.exit_code == 2, result.output
     assert "FLOW_DATABASE_URL" in result.output
+
+
+# thread
+
+
+async def test_one_main_post_a_day_and_replies_under_it(tmp_path: Path) -> None:
+    settings = live(tmp_path)
+    posts: list[str] = []
+    replies: list[str | None] = []
+    source = ListSource([TSLA])
+    client = x_poster(posts, replies)
+    try:
+        main = await run_flow_once(
+            settings=settings, source=source, post=True, client=client, now=NOW
+        )
+        source.prints.append(
+            FlowPrint(**{**SPXW.__dict__, "created_at": NOW + timedelta(minutes=10)})
+        )
+        reply = await run_flow_once(
+            settings=settings,
+            source=source,
+            post=True,
+            client=client,
+            now=NOW + timedelta(minutes=15),
+        )
+        source.prints.append(FlowPrint(**{**QQQ.__dict__, "created_at": NOW + timedelta(days=3)}))
+        monday = await run_flow_once(
+            settings=settings,
+            source=source,
+            post=True,
+            client=client,
+            now=NOW + timedelta(days=3, minutes=5),
+        )
+    finally:
+        await client.aclose()
+
+    assert main.in_reply_to is None and replies[0] is None
+    assert posts[0].startswith("Options Flow · Fri 10/9 🧵\n")
+    assert posts[0].endswith("Not investment advice.")
+
+    assert reply.in_reply_to == main.tweet_id == "t1"
+    assert replies[1] == "t1"
+    assert posts[1].startswith("🔴 $219K CALL BID") and "Not investment advice." not in posts[1]
+
+    assert monday.in_reply_to is None and replies[2] is None
+    assert posts[2].startswith("Options Flow · Mon 10/12 🧵\n")
+
+
+async def test_dry_run_shows_the_reply_it_would_make(tmp_path: Path) -> None:
+    settings = live(tmp_path)
+    posts: list[str] = []
+    client = x_poster(posts)
+    try:
+        await run_flow_once(
+            settings=settings, source=ListSource([TSLA]), post=True, client=client, now=NOW
+        )
+    finally:
+        await client.aclose()
+    later = FlowPrint(**{**SPXW.__dict__, "created_at": NOW + timedelta(minutes=10)})
+    draft = await run_flow_once(
+        settings=settings, source=ListSource([later]), now=NOW + timedelta(minutes=15)
+    )
+    assert draft.reason == "drafted"
+    assert draft.in_reply_to == "t1"
+
+
+async def test_no_thread_posts_standalone(tmp_path: Path) -> None:
+    settings = live(tmp_path)
+    posts: list[str] = []
+    replies: list[str | None] = []
+    source = ListSource([TSLA])
+    client = x_poster(posts, replies)
+    try:
+        await run_flow_once(
+            settings=settings, source=source, post=True, client=client, now=NOW, thread=False
+        )
+        source.prints.append(
+            FlowPrint(**{**SPXW.__dict__, "created_at": NOW + timedelta(minutes=10)})
+        )
+        await run_flow_once(
+            settings=settings,
+            source=source,
+            post=True,
+            client=client,
+            now=NOW + timedelta(minutes=15),
+            thread=False,
+        )
+    finally:
+        await client.aclose()
+    assert replies == [None, None]
+    assert posts[0].startswith("🔴 $255K")

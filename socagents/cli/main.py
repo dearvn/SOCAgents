@@ -1251,8 +1251,16 @@ def x_flow(
         typer.Option(min=5, max=1440, help="Minutes to look back. Older flow is never posted."),
     ] = 30,
     header: Annotated[
-        str | None, typer.Option(help="A first line, e.g. 'Options Flow · last 15m'.")
+        str | None,
+        typer.Option(help="First line. Default: 'Options Flow · Mon 10/12 🧵' on the main post."),
     ] = None,
+    thread: Annotated[
+        bool,
+        typer.Option(
+            "--thread/--no-thread",
+            help="One main post per New York day; later cycles reply to it. Default: on.",
+        ),
+    ] = True,
     from_file: Annotated[
         Path | None,
         typer.Option(
@@ -1281,6 +1289,7 @@ def x_flow(
                 max_lines=lines,
                 max_age_minutes=max_age,
                 header=header,
+                thread=thread,
             )
         )
     except SocAgentsError as exc:
@@ -1290,10 +1299,11 @@ def x_flow(
         return
     if report.text:
         verb = "posted" if report.tweet_id else "draft"
+        kind = f"reply to {report.in_reply_to}" if report.in_reply_to else "main post"
         console.print(
             Panel(
                 Text(report.text),
-                title=f"{verb} · {weighted_len(report.text)}/280",
+                title=f"{verb} · {kind} · {weighted_len(report.text)}/280",
                 title_align="left",
             )
         )
@@ -1329,6 +1339,7 @@ def _flow_json(report: FlowReport) -> dict[str, Any]:
         "fetched": report.fetched,
         "reason": report.reason,
         "tweet_id": report.tweet_id,
+        "in_reply_to": report.in_reply_to,
         "text": report.text,
         "print_ids": [p.id for p in report.prints],
         "api_cost_usd": report.api_cost_usd,

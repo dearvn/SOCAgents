@@ -43,7 +43,7 @@ Available now:
 | `socagents x once [--post] [--symbols A,B] [--max-replies N] [--json]` | one X reply-bot cycle; drafts unless `--post` and `AGENT_SOCIAL=1` (see [X reply bot](x-bot.md)) |
 | `socagents x login` / `auth` / `logout` / `status` | X credentials — OAuth 1.0a keys (`login`) or the OAuth 2.0 browser flow (`auth`) — plus cursor and the last 24h |
 | `socagents x post "TEXT" [--reply-to ID]` | post one tweet to test the write path; needs `AGENT_SOCIAL=1` |
-| `socagents x flow [--post] [--min-premium USD] [--lines N] [--from-file F] [--json]` | post the largest new Options Flow prints as one tweet; drafts unless `--post` and `AGENT_SOCIAL=1` (see [Options Flow digest](x-bot.md#options-flow-digest)) |
+| `socagents x flow [--post] [--min-premium USD] [--lines N] [--no-thread] [--from-file F] [--json]` | post the largest new Options Flow prints: one main post a day, later cycles reply to it; drafts unless `--post` and `AGENT_SOCIAL=1` (see [Options Flow digest](x-bot.md#options-flow-digest)) |
 | `socagents skills list\|show\|enable\|disable\|add PATH\|remove` | manage skills |
 | `socagents mcp add NAME -- COMMAND` / `mcp list\|show\|allow\|deny\|verify\|remove` | external MCP servers as read-only desk tools |
 
