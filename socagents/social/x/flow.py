@@ -116,14 +116,17 @@ def fmt_expiration(expiration: str, *, today: date) -> str:
     return expiration
 
 
-def flow_line(p: FlowPrint, *, today: date, cashtag: bool = True) -> str:
-    """X allows one cashtag per post, so only the first line of a tweet gets the ``$``."""
+TAG_STYLES = {"plain": "", "hashtag": "#"}
+
+
+def flow_line(p: FlowPrint, *, today: date, tag: str = "$") -> str:
+    """``tag`` goes before the symbol: ``$`` (cashtag), ``#`` (hashtag), or nothing."""
     label = impact_label(p)
     dot = "🟢" if "Bullish" in label else "🔴" if "Bearish" in label else "⚪"
     side = p.option_type.upper()
     return (
         f"{dot} {fmt_premium(p.premium)} {side} {p.direction.upper()} | "
-        f"{'$' if cashtag else ''}{p.symbol.upper()} {fmt_strike(p.strike)}{side[:1]} "
+        f"{tag}{p.symbol.upper()} {fmt_strike(p.strike)}{side[:1]} "
         f"{fmt_expiration(p.expiration, today=today)} @ {p.price:.2f} → {label}"
     )
 
@@ -135,8 +138,15 @@ def compose_flow(
     max_lines: int = 4,
     header: str | None = None,
     footer: str | None = DISCLAIMER,
+    tags: str = "plain",
 ) -> tuple[str, list[FlowPrint], list[str]]:
-    """Pack the largest prints into one tweet: the text, the prints it carries, their lines."""
+    """Pack the largest prints into one tweet: the text, the prints it carries, their lines.
+
+    X refuses an API post with more than one cashtag, so only the first line gets ``$``. The
+    others get ``tags``: no prefix (``plain``) or a hashtag (``hashtag``).
+    """
+    if tags not in TAG_STYLES:
+        raise ConfigError(f"Unknown tag style {tags!r}. Use one of: {', '.join(TAG_STYLES)}.")
     fixed = [part for part in (header,) if part]
     tail = [footer] if footer else []
     used: list[FlowPrint] = []
@@ -144,7 +154,7 @@ def compose_flow(
     for p in sorted(prints, key=lambda x: x.premium, reverse=True):
         if len(used) >= max_lines:
             break
-        line = flow_line(p, today=today, cashtag=not lines)
+        line = flow_line(p, today=today, tag="$" if not lines else TAG_STYLES[tags])
         if weighted_len("\n".join([*fixed, *lines, line, *tail])) > X_MAX_WEIGHT:
             continue
         lines.append(line)
@@ -243,6 +253,7 @@ async def run_flow_once(
     max_age_minutes: int = 30,
     header: str | None = None,
     thread: bool = True,
+    tags: str = "plain",
     now: datetime | None = None,
 ) -> FlowReport:
     if post and not settings.kill_switches.agent_social:
@@ -272,11 +283,13 @@ async def run_flow_once(
         if root:
             # A reply: the main post already carries the date and the disclaimer.
             text, used, lines = compose_flow(
-                fresh, today=today, max_lines=max_lines, header=header, footer=None
+                fresh, today=today, max_lines=max_lines, header=header, footer=None, tags=tags
             )
         else:
             first = header or (root_header(today) if thread else None)
-            text, used, lines = compose_flow(fresh, today=today, max_lines=max_lines, header=first)
+            text, used, lines = compose_flow(
+                fresh, today=today, max_lines=max_lines, header=first, tags=tags
+            )
         report.text, report.prints, report.in_reply_to = text, used, root
         if not used:
             report.reason = "nothing_fits"

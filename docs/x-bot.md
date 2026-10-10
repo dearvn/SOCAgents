@@ -192,7 +192,9 @@ timeline shows one post a day and the rest of the flow sits under it. The next d
 new main post. `--no-thread` posts each cycle on its own instead.
 
 X refuses a post with more than one cashtag, so only the first line of each tweet has the
-`$` (`$TSLA`); the other lines name the symbol plainly (`SPXW`). The price is written
+`$` (`$TSLA`); the other lines name the symbol plainly (`SPXW`), or as a hashtag (`#SPXW`) with
+`--tags hashtag`. The limit applies to API posts only; a post written by hand in the X app
+can carry several cashtags. The price is written
 `@ 27.45` with a space, because X reads `@27` as a mention of the account @27. ASK means the option was bought at the ask, BID that it was sold at the bid. The label is the
 engine's impact slug with "Pressure" dropped; green when it reads bullish, red when bearish.
 

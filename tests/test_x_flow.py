@@ -446,3 +446,53 @@ def test_price_never_reads_as_a_mention() -> None:
     text, _, _ = compose_flow([TSLA, SPXW, QQQ], today=TODAY)
     assert not re.search(r"@\w", text)
     assert "@ 27.45" in text
+
+
+def test_hashtag_style_tags_the_other_symbols() -> None:
+    text, _, _ = compose_flow([TSLA, SPXW, QQQ], today=TODAY, tags="hashtag")
+    assert "| $TSLA 380P" in text
+    assert "| #SPXW 7790C" in text and "| #QQQ 750P" in text
+    assert text.count("$TSLA") == 1 and "$SPXW" not in text
+
+
+def test_unknown_tag_style_is_refused() -> None:
+    with pytest.raises(ConfigError):
+        compose_flow([TSLA], today=TODAY, tags="emoji")
+
+
+def test_x_flow_cli_passes_the_tag_style(tmp_path: Path) -> None:
+    path = tmp_path / "flow.json"
+    created = (datetime.now(UTC) - timedelta(minutes=2)).isoformat()
+    rows = [
+        {**row, "id": str(i), "created_at": created}
+        for i, row in enumerate(
+            [
+                {
+                    "symbol": "TSLA",
+                    "expiration": "2027-01-15",
+                    "strike": 380,
+                    "option_type": "PUT",
+                    "direction": "ASK",
+                    "premium": 255000,
+                    "price": 27.45,
+                    "slug": "Bearish Pressure",
+                },
+                {
+                    "symbol": "QQQ",
+                    "expiration": "2026-10-16",
+                    "strike": 750,
+                    "option_type": "PUT",
+                    "direction": "BID",
+                    "premium": 216000,
+                    "price": 5.39,
+                    "slug": "Hedge / Weak Bullish",
+                },
+            ]
+        )
+    ]
+    path.write_text(json.dumps(rows))
+    result = runner.invoke(
+        app, ["x", "flow", "--from-file", str(path), "--tags", "hashtag", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "| #QQQ 750P" in json.loads(result.output)["text"]

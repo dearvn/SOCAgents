@@ -1261,6 +1261,13 @@ def x_flow(
             help="One main post per New York day; later cycles reply to it. Default: on.",
         ),
     ] = True,
+    tags: Annotated[
+        str,
+        typer.Option(
+            help="Symbols after the first line of a post (X allows one cashtag per API "
+            "post): plain (SPX) or hashtag (#SPX).",
+        ),
+    ] = "plain",
     from_file: Annotated[
         Path | None,
         typer.Option(
@@ -1290,6 +1297,7 @@ def x_flow(
                 max_age_minutes=max_age,
                 header=header,
                 thread=thread,
+                tags=tags,
             )
         )
     except SocAgentsError as exc:
