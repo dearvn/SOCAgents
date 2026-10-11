@@ -254,11 +254,10 @@ CRON_TZ=America/New_York
 
 ### The same flow on Discord
 
-`socagents discord flow` posts the same lines to a Discord channel through a channel webhook
-(Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL). Discord has no
-cashtag limit, so every symbol keeps its `$`, and a message holds up to 10 lines by default.
-The first message of a New York day carries a bold date header and the disclaimer; later
-cycles post just the new lines. Its cursor and posted prints live in their own tables
+`socagents discord flow` posts the same text as the X flow to a Discord channel through a
+channel webhook (Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL):
+the same lines, the same 4-line cap, the dated header and disclaimer on the first message of
+a New York day, just the new lines after that. Its cursor and posted prints live in their own tables
 (`discord_state`, `discord_flow_posts`), so it never waits on the X job.
 
 ```bash

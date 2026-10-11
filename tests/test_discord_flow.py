@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from test_x_flow import NOW, QQQ, SPXW, TODAY, TSLA, ListSource, live
+from test_x_flow import NOW, QQQ, SPXW, TSLA, ListSource, live
 
 from socagents.core.config import Settings
 from socagents.core.errors import ConfigError
@@ -14,11 +14,10 @@ from socagents.social.discord.flow import (
     WEBHOOK_ENV,
     DiscordError,
     DiscordWebhook,
-    compose_discord,
     run_discord_flow_once,
     webhook_url_from_env,
 )
-from socagents.social.x.flow import FlowPrint
+from socagents.social.x.flow import FlowPrint, run_flow_once
 
 HOOK = "https://discord.com/api/webhooks/123/abc-DEF_9"
 
@@ -34,20 +33,12 @@ def poster(sent: list[dict], *, status: int = 200) -> DiscordWebhook:
     return DiscordWebhook(HOOK, transport=httpx.MockTransport(handler))
 
 
-def test_every_line_keeps_its_cashtag() -> None:
-    text, used, _ = compose_discord([QQQ, TSLA, SPXW], today=TODAY)
-    assert len(used) == 3
-    assert "$TSLA 380P" in text and "$SPXW 7790C" in text and "$QQQ 750P" in text
-    assert text.splitlines()[0].startswith("🔴 $255K PUT ASK")
-
-
-def test_compose_stays_under_discord_limit() -> None:
-    many = [
-        FlowPrint(**{**TSLA.__dict__, "id": f"p{i}", "premium": 100_000 + i}) for i in range(60)
-    ]
-    text, used, _ = compose_discord(many, today=TODAY, max_lines=60, header="h", footer="f")
-    assert len(text) <= 2000
-    assert 10 < len(used) < 60
+async def test_the_text_matches_the_x_post(settings: Settings) -> None:
+    source = ListSource([QQQ, TSLA, SPXW])
+    discord = await run_discord_flow_once(settings=settings, source=source, now=NOW)
+    x = await run_flow_once(settings=settings, source=source, now=NOW)
+    assert discord.text == x.text
+    assert sum(1 for w in discord.text.split() if w[:1] == "$" and w[1:2].isalpha()) == 1
 
 
 async def test_dry_run_drafts_and_writes_no_state(settings: Settings) -> None:
@@ -56,8 +47,8 @@ async def test_dry_run_drafts_and_writes_no_state(settings: Settings) -> None:
     second = await run_discord_flow_once(settings=settings, source=source, now=NOW)
     assert first.reason == second.reason == "drafted"
     assert first.text == second.text
-    assert first.text.splitlines()[0] == "**Options Flow · Fri 10/9**"
-    assert first.text.endswith("-# Not investment advice.")
+    assert first.text.splitlines()[0] == "Options Flow · Fri 10/9 🧵"
+    assert first.text.endswith("\nNot investment advice.")
 
 
 async def test_posting_needs_the_kill_switch(settings: Settings) -> None:
@@ -105,10 +96,10 @@ async def test_header_once_a_day_then_plain_follow_ups(tmp_path: Path) -> None:
     assert monday.first_of_day
     assert len(sent) == 3
     assert sent[0]["allowed_mentions"] == {"parse": []}
-    assert sent[0]["content"].startswith("**Options Flow · Fri 10/9**\n")
+    assert sent[0]["content"].startswith("Options Flow · Fri 10/9 🧵\n")
     assert sent[1]["content"].startswith("🔴 $219K CALL BID | $SPXW")
     assert "Not investment advice" not in sent[1]["content"]
-    assert sent[2]["content"].startswith("**Options Flow · Mon 10/12**\n")
+    assert sent[2]["content"].startswith("Options Flow · Mon 10/12 🧵\n")
 
 
 async def test_a_rejected_webhook_leaves_the_flow_for_the_next_cycle(tmp_path: Path) -> None:

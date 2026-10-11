@@ -1371,11 +1371,15 @@ def discord_flow(
     min_premium: Annotated[
         float, typer.Option(min=0.0, help="Smallest premium worth a line, USD.")
     ] = 100_000,
-    lines: Annotated[int, typer.Option(min=1, max=20, help="Most prints per message.")] = 10,
+    lines: Annotated[int, typer.Option(min=1, max=8, help="Most prints per message.")] = 4,
     max_age: Annotated[
         int,
         typer.Option(min=5, max=1440, help="Minutes to look back. Older flow is never posted."),
     ] = 30,
+    tags: Annotated[
+        str,
+        typer.Option(help="Symbols after the first line, as on X: plain (SPX) or hashtag (#SPX)."),
+    ] = "plain",
     from_file: Annotated[
         Path | None,
         typer.Option(
@@ -1403,6 +1407,7 @@ def discord_flow(
                 min_premium=min_premium,
                 max_lines=lines,
                 max_age_minutes=max_age,
+                tags=tags,
             )
         )
     except SocAgentsError as exc:
@@ -1416,13 +1421,13 @@ def discord_flow(
         console.print(
             Panel(
                 Text(report.text),
-                title=f"{verb} · {kind} · {len(report.text)}/2000",
+                title=f"{verb} · {kind} · {len(report.text)} chars",
                 title_align="left",
             )
         )
     messages = {
         "no_new_flow": "No new flow since the last message. Nothing sent.",
-        "nothing_fits": "No print fits in one message. Nothing sent.",
+        "nothing_fits": "No print fits in one post. Nothing sent.",
         "drafted": "Dry run, nothing sent. Pass --post with AGENT_SOCIAL=1 to send it.",
     }
     if report.message_id:

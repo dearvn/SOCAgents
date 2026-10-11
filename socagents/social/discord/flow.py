@@ -1,11 +1,11 @@
-"""Options Flow digest to a Discord channel, in the same lines the X bot posts.
+"""Options Flow digest to a Discord channel, word for word what the X bot posts.
 
 A channel webhook is all it needs: no bot user, no gateway connection. The webhook URL is a
 secret (anyone holding it can post as the webhook), so it only comes from the environment.
 
-Discord has no cashtag limit and a 2,000-character message, so every symbol keeps its ``$``
-and a message carries more lines than a tweet. The first message of a New York day carries a
-dated header and the disclaimer; later cycles that day post just the new lines.
+The text comes from :func:`socagents.social.x.flow.compose_flow`, so a channel reads the
+same as the X timeline: the first message of a New York day carries the dated header and the
+disclaimer, later cycles that day post just the new lines.
 
 State is separate from the X bot's, so a failed tweet never holds back Discord or the other
 way round. Like the X flow, a cycle drafts by default and posting needs ``--post`` and
@@ -28,10 +28,9 @@ from socagents.core.errors import ConfigError, SocAgentsError
 from socagents.core.timeutil import ET, iso, utcnow
 from socagents.db.store import Store
 from socagents.social.x.compose import DISCLAIMER
-from socagents.social.x.flow import FlowPrint, FlowSource, _utc, flow_line
+from socagents.social.x.flow import FlowPrint, FlowSource, _utc, compose_flow, root_header
 
 WEBHOOK_ENV = "DISCORD_FLOW_WEBHOOK_URL"
-DISCORD_MAX_CHARS = 2000
 SUPPRESS_EMBEDS = 1 << 2
 
 _WEBHOOK_RE = re.compile(
@@ -114,35 +113,6 @@ class DiscordWebhook:
         raise DiscordError("Discord kept rate limiting the webhook.", code="discord_rate_limited")
 
 
-def compose_discord(
-    prints: list[FlowPrint],
-    *,
-    today: date,
-    max_lines: int = 10,
-    header: str | None = None,
-    footer: str | None = None,
-) -> tuple[str, list[FlowPrint], list[str]]:
-    fixed = [header] if header else []
-    tail = [footer] if footer else []
-    used: list[FlowPrint] = []
-    lines: list[str] = []
-    for p in sorted(prints, key=lambda x: x.premium, reverse=True):
-        if len(used) >= max_lines:
-            break
-        line = flow_line(p, today=today, tag="$")
-        if len("\n".join([*fixed, *lines, line, *tail])) > DISCORD_MAX_CHARS:
-            break
-        lines.append(line)
-        used.append(p)
-    if not used:
-        return "", [], []
-    return "\n".join([*fixed, *lines, *tail]), used, lines
-
-
-def day_header(day: date) -> str:
-    return f"**Options Flow · {day.strftime('%a')} {day.month}/{day.day}**"
-
-
 class DiscordFlowStore:
     def __init__(self, store: Store) -> None:
         self._db = store.connection
@@ -211,8 +181,9 @@ async def run_discord_flow_once(
     post: bool = False,
     webhook: DiscordWebhook | None = None,
     min_premium: float = 100_000,
-    max_lines: int = 10,
+    max_lines: int = 4,
     max_age_minutes: int = 30,
+    tags: str = "plain",
     now: datetime | None = None,
 ) -> DiscordFlowReport:
     if post and not settings.kill_switches.agent_social:
@@ -241,16 +212,14 @@ async def run_discord_flow_once(
 
         today = now.astimezone(ET).date()
         report.first_of_day = flow_store.get_state(FLOW_DAY) != today.isoformat()
-        if report.first_of_day:
-            text, used, lines = compose_discord(
-                fresh,
-                today=today,
-                max_lines=max_lines,
-                header=day_header(today),
-                footer=f"-# {DISCLAIMER}",
-            )
-        else:
-            text, used, lines = compose_discord(fresh, today=today, max_lines=max_lines)
+        text, used, lines = compose_flow(
+            fresh,
+            today=today,
+            max_lines=max_lines,
+            header=root_header(today) if report.first_of_day else None,
+            footer=DISCLAIMER if report.first_of_day else None,
+            tags=tags,
+        )
         report.text, report.prints = text, used
         if not used:
             report.reason = "nothing_fits"
