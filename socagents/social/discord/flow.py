@@ -5,7 +5,8 @@ secret (anyone holding it can post as the webhook), so it only comes from the en
 
 The text comes from :func:`socagents.social.x.flow.compose_flow`, so a channel reads the
 same as the X timeline: the first message of a New York day carries the dated header and the
-disclaimer, later cycles that day post just the new lines.
+disclaimer, later cycles that day post just the new lines. A link to the desk's website can
+go under the lines of every message, which a tweet leaves out because X bills links extra.
 
 State is separate from the X bot's, so a failed tweet never holds back Discord or the other
 way round. Like the X flow, a cycle drafts by default and posting needs ``--post`` and
@@ -184,6 +185,7 @@ async def run_discord_flow_once(
     max_lines: int = 4,
     max_age_minutes: int = 30,
     tags: str = "plain",
+    link: str | None = None,
     now: datetime | None = None,
 ) -> DiscordFlowReport:
     if post and not settings.kill_switches.agent_social:
@@ -217,9 +219,13 @@ async def run_discord_flow_once(
             today=today,
             max_lines=max_lines,
             header=root_header(today) if report.first_of_day else None,
-            footer=DISCLAIMER if report.first_of_day else None,
+            footer=None,
             tags=tags,
         )
+        # The same prints as the tweet: the link and disclaimer go on after the 280 cut.
+        tail = [f"🔗 {link}" if link else None, DISCLAIMER if report.first_of_day else None]
+        if used:
+            text = "\n".join([text, *(part for part in tail if part)])
         report.text, report.prints = text, used
         if not used:
             report.reason = "nothing_fits"

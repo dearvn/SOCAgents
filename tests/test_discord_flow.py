@@ -152,3 +152,39 @@ def test_webhook_url_is_checked(monkeypatch: pytest.MonkeyPatch) -> None:
         webhook_url_from_env()
     monkeypatch.setenv(WEBHOOK_ENV, HOOK)
     assert webhook_url_from_env() == HOOK
+
+
+async def test_link_goes_under_the_lines_of_every_message(tmp_path: Path) -> None:
+    settings = live(tmp_path)
+    sent: list[dict] = []
+    source = ListSource([TSLA, SPXW])
+    hook = poster(sent)
+    try:
+        await run_discord_flow_once(
+            settings=settings,
+            source=source,
+            post=True,
+            webhook=hook,
+            now=NOW,
+            tags="hashtag",
+            link="https://socswift.com",
+        )
+        source.prints.append(
+            FlowPrint(**{**QQQ.__dict__, "created_at": NOW + timedelta(minutes=10)})
+        )
+        await run_discord_flow_once(
+            settings=settings,
+            source=source,
+            post=True,
+            webhook=hook,
+            now=NOW + timedelta(minutes=15),
+            tags="hashtag",
+            link="https://socswift.com",
+        )
+    finally:
+        await hook.aclose()
+
+    first = sent[0]["content"].splitlines()
+    assert "| #SPXW 7790C" in sent[0]["content"]
+    assert first[-2:] == ["🔗 https://socswift.com", "Not investment advice."]
+    assert sent[1]["content"].splitlines()[-1] == "🔗 https://socswift.com"

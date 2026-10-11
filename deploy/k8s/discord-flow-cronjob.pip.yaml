@@ -49,7 +49,8 @@ spec:
                   fi
                   exec "$V/bin/socagents" "$@"
                 - sh
-              args: ["discord", "flow", "--post", "--min-premium", "100000", "--lines", "4"]
+              args: ["discord", "flow", "--post", "--min-premium", "100000", "--lines", "4",
+                     "--tags", "hashtag", "--link", "https://socswift.com"]
               env:
                 - name: SOCAGENTS_REF
                   value: "SOCAGENTS_REF_VALUE"

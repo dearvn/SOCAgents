@@ -1380,6 +1380,10 @@ def discord_flow(
         str,
         typer.Option(help="Symbols after the first line, as on X: plain (SPX) or hashtag (#SPX)."),
     ] = "plain",
+    link: Annotated[
+        str | None,
+        typer.Option(help="A URL on its own line under the prints, e.g. https://socswift.com."),
+    ] = None,
     from_file: Annotated[
         Path | None,
         typer.Option(
@@ -1408,6 +1412,7 @@ def discord_flow(
                 max_lines=lines,
                 max_age_minutes=max_age,
                 tags=tags,
+                link=link,
             )
         )
     except SocAgentsError as exc:
