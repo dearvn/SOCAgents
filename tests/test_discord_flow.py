@@ -154,7 +154,7 @@ def test_webhook_url_is_checked(monkeypatch: pytest.MonkeyPatch) -> None:
     assert webhook_url_from_env() == HOOK
 
 
-async def test_link_goes_under_the_lines_of_every_message(tmp_path: Path) -> None:
+async def test_link_closes_every_message(tmp_path: Path) -> None:
     settings = live(tmp_path)
     sent: list[dict] = []
     source = ListSource([TSLA, SPXW])
@@ -186,5 +186,5 @@ async def test_link_goes_under_the_lines_of_every_message(tmp_path: Path) -> Non
 
     first = sent[0]["content"].splitlines()
     assert "| #SPXW 7790C" in sent[0]["content"]
-    assert first[-2:] == ["🔗 https://socswift.com", "Not investment advice."]
+    assert first[-2:] == ["Not investment advice.", "🔗 https://socswift.com"]
     assert sent[1]["content"].splitlines()[-1] == "🔗 https://socswift.com"
