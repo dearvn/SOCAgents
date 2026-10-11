@@ -1,0 +1,72 @@
+# Options Flow to a Discord channel: the X flow job's twin, posting through a channel webhook.
+# Its own job and volume, so a failure on one side never holds back the other.
+#   sed "s/SOCAGENTS_REF_VALUE/$(git rev-parse HEAD)/" deploy/k8s/discord-flow-cronjob.pip.yaml | kubectl apply -f -
+# Reads FLOW_DATABASE_URL and DISCORD_FLOW_WEBHOOK_URL from the socagents-x-flow Secret. Pause:
+#   kubectl patch cronjob socagents-discord-flow -p '{"spec":{"suspend":true}}'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: socagents-discord-flow-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: socagents-discord-flow
+spec:
+  schedule: "*/15 9-16 * * 1-5"
+  timeZone: "America/New_York"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: discord-flow
+              image: python:3.12-slim
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  V="/data/venv-$SOCAGENTS_REF"
+                  if [ ! -f "$V/.ok" ]; then
+                    rm -rf "$V" && python -m venv "$V"
+                    "$V/bin/pip" install -q --disable-pip-version-check \
+                      "socagents[flow] @ https://github.com/dearvn/SOCAgents/archive/$SOCAGENTS_REF.tar.gz"
+                    touch "$V/.ok"
+                    find /data -maxdepth 1 -name 'venv-*' ! -name "venv-$SOCAGENTS_REF" -exec rm -rf {} +
+                  fi
+                  exec "$V/bin/socagents" "$@"
+                - sh
+              args: ["discord", "flow", "--post", "--min-premium", "100000", "--lines", "10"]
+              env:
+                - name: SOCAGENTS_REF
+                  value: "SOCAGENTS_REF_VALUE"
+                - name: SOCAGENTS_HOME
+                  value: /data/home
+                - name: AGENT_SOCIAL
+                  value: "1"
+              envFrom:
+                - secretRef:
+                    name: socagents-x-flow
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits: { memory: 512Mi }
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: socagents-discord-flow-data

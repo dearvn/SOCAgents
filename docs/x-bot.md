@@ -252,6 +252,25 @@ CRON_TZ=America/New_York
 */15 9-16 * * 1-5  docker run --rm --env-file /etc/socagents-x.env -e AGENT_SOCIAL=1 -v socagents-data:/data REGISTRY/socagents:latest x flow --post
 ```
 
+### The same flow on Discord
+
+`socagents discord flow` posts the same lines to a Discord channel through a channel webhook
+(Edit Channel → Integrations → Webhooks → New Webhook → Copy Webhook URL). Discord has no
+cashtag limit, so every symbol keeps its `$`, and a message holds up to 10 lines by default.
+The first message of a New York day carries a bold date header and the disclaimer; later
+cycles post just the new lines. Its cursor and posted prints live in their own tables
+(`discord_state`, `discord_flow_posts`), so it never waits on the X job.
+
+```bash
+export DISCORD_FLOW_WEBHOOK_URL='https://discord.com/api/webhooks/<id>/<token>'
+socagents discord flow                          # draft
+AGENT_SOCIAL=1 socagents discord flow --post    # send it
+```
+
+The webhook URL is a secret: anyone holding it can post to the channel. On Kubernetes it goes
+in the same Secret as the X keys, and `deploy/k8s/discord-flow-cronjob.pip.yaml` runs it on
+the X job's schedule.
+
 ## State and audit
 
 Tables in the usual SQLite store: `x_state` (mention cursor, flow cursor, bot account),

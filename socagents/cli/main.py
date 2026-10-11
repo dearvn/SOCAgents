@@ -61,6 +61,7 @@ from socagents.runtime.native import RunResult
 from socagents.runtime.states import RunStatus
 from socagents.session import purge_member_data
 from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_skill
+from socagents.social.discord.flow import DiscordFlowReport, run_discord_flow_once
 from socagents.social.x import auth as x_auth
 from socagents.social.x.client import POST_USD, POST_WITH_LINK_USD, XClient, XUser
 from socagents.social.x.compose import has_link, weighted_len
@@ -98,6 +99,9 @@ x_app = typer.Typer(
     help="X (Twitter) bot: reply to mentions in the thread, and post an Options Flow digest.",
     no_args_is_help=True,
 )
+discord_app = typer.Typer(
+    help="Discord: post the Options Flow digest to a channel webhook.", no_args_is_help=True
+)
 regime_app = typer.Typer(
     help="Research track: the online regime classifier's learning status.",
     no_args_is_help=True,
@@ -107,6 +111,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(skills_app, name="skills")
 app.add_typer(x_app, name="x")
+app.add_typer(discord_app, name="discord")
 app.add_typer(regime_app, name="regime")
 
 console = Console()
@@ -1351,6 +1356,95 @@ def _flow_json(report: FlowReport) -> dict[str, Any]:
         "text": report.text,
         "print_ids": [p.id for p in report.prints],
         "api_cost_usd": report.api_cost_usd,
+    }
+
+
+@discord_app.command("flow")
+def discord_flow(
+    post: Annotated[
+        bool,
+        typer.Option(
+            "--post/--dry-run",
+            help="Send the message. Also needs AGENT_SOCIAL=1. Default: draft only.",
+        ),
+    ] = False,
+    min_premium: Annotated[
+        float, typer.Option(min=0.0, help="Smallest premium worth a line, USD.")
+    ] = 100_000,
+    lines: Annotated[int, typer.Option(min=1, max=20, help="Most prints per message.")] = 10,
+    max_age: Annotated[
+        int,
+        typer.Option(min=5, max=1440, help="Minutes to look back. Older flow is never posted."),
+    ] = 30,
+    from_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--from-file",
+            exists=True,
+            dir_okay=False,
+            help="Read prints from a JSON file instead of the database (rehearsal).",
+        ),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the cycle as JSON.")] = False,
+) -> None:
+    """Post the largest new Options Flow prints to a Discord channel, and stop.
+
+    Reads FLOW_DATABASE_URL (a read-only Postgres role) and DISCORD_FLOW_WEBHOOK_URL. Drafts
+    by default. Run it from cron every 15 minutes; a cycle with no new flow posts nothing.
+    """
+    settings = _settings()
+    try:
+        source: FlowSource = JsonFileSource(from_file) if from_file else PostgresFlowSource()
+        report = asyncio.run(
+            run_discord_flow_once(
+                settings=settings,
+                source=source,
+                post=post,
+                min_premium=min_premium,
+                max_lines=lines,
+                max_age_minutes=max_age,
+            )
+        )
+    except SocAgentsError as exc:
+        _fail(exc)
+    if as_json:
+        typer.echo(json.dumps(_discord_flow_json(report), indent=2))
+        return
+    if report.text:
+        verb = "posted" if report.message_id else "draft"
+        kind = "first of the day" if report.first_of_day else "follow-up"
+        console.print(
+            Panel(
+                Text(report.text),
+                title=f"{verb} · {kind} · {len(report.text)}/2000",
+                title_align="left",
+            )
+        )
+    messages = {
+        "no_new_flow": "No new flow since the last message. Nothing sent.",
+        "nothing_fits": "No print fits in one message. Nothing sent.",
+        "drafted": "Dry run, nothing sent. Pass --post with AGENT_SOCIAL=1 to send it.",
+    }
+    if report.message_id:
+        console.print(f"Posted: Discord message {report.message_id}")
+    else:
+        console.print(f"[dim]{messages.get(report.reason, report.reason)}[/dim]")
+    console.print(
+        f"[dim]{report.fetched} read since {fmt_et(report.since)} · "
+        f"{len(report.prints)} in the message[/dim]"
+    )
+
+
+def _discord_flow_json(report: DiscordFlowReport) -> dict[str, Any]:
+    return {
+        "dry_run": report.dry_run,
+        "since": report.since.isoformat(),
+        "fetched": report.fetched,
+        "reason": report.reason,
+        "message_id": report.message_id,
+        "first_of_day": report.first_of_day,
+        "text": report.text,
+        "print_ids": [p.id for p in report.prints],
     }
 
 
