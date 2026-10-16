@@ -1,0 +1,189 @@
+{
+  "id": "gamma-positive-put-wall-rejection",
+  "skill": "gamma-regime-playbook",
+  "title": "Positive gamma, spot dips under the put wall",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-14T14:30:00Z",
+  "spot": 595.9,
+  "reports": [
+    {
+      "role": "dealer_positioning",
+      "stance": "bullish",
+      "confidence": 0.6,
+      "summary": "Positive gamma (estimate): spot dipped under the put wall 596; the range runs to the call wall 604; flip 592.",
+      "key_levels": [
+        {
+          "price": 596.0,
+          "kind": "put_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 604.0,
+          "kind": "call_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 592.0,
+          "kind": "zero_gamma",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 600.0,
+          "kind": "range_middle",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "gamma_regime",
+          "value": "positive (estimate)",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_gex"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "Flush to 595.60 low, now back at 595.90.",
+      "key_levels": [
+        {
+          "price": 595.6,
+          "kind": "session_low",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q596c",
+      "right": "call",
+      "strike": 596.0,
+      "expiration": "2026-09-14",
+      "bid": 1.28,
+      "ask": 1.32,
+      "iv": 0.14,
+      "delta": 0.48,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q596p",
+      "right": "put",
+      "strike": 596.0,
+      "expiration": "2026-09-14",
+      "bid": 1.36,
+      "ask": 1.4,
+      "iv": 0.14,
+      "delta": -0.52,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "put_wall": 596.0,
+    "call_wall": 604.0,
+    "flip": 592.0
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "wall_rejection",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Frame the idea by the gamma regime from the Dealer Positioning report.",
+      "Tie trigger, invalidation, and target to levels from the reports with evidence ids.",
+      "Call levels from delayed public data estimates."
+    ],
+    "must_avoid": [
+      "Chasing a breakout in positive gamma in the middle of the range.",
+      "Fading a confirmed break in negative gamma.",
+      "Triggering before a close beyond the flip when spot sits near it."
+    ],
+    "best_practice": [
+      "In positive gamma, keep targets inside the walls.",
+      "In negative gamma, say that swings can be wider.",
+      "Answer no trade when spot is mid-range with no clear trigger."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 596.0,
+        "expiration": "2026-09-14",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_out",
+          "trigger_price": 596.0
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.3,
+        "stop": 0.7,
+        "target": 2.0,
+        "invalidation": "A new low under the session low 595.60.",
+        "rationale": "Positive gamma (estimate): a reclaim of the put wall 596 is a rejection; target back toward the range middle 600, inside the walls.",
+        "evidence": [
+          "snp_case_q596c",
+          "snp_case_gex"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}

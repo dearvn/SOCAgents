@@ -1,0 +1,161 @@
+{
+  "id": "event-jobs-premarket-put",
+  "skill": "event-risk-checklist",
+  "title": "Pre-market weakness with the jobs report at 08:30 ET",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-10-02T11:40:00Z",
+  "spot": 597.6,
+  "reports": [
+    {
+      "role": "event_news",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "jobs report due at 08:30 ET; high importance.",
+      "key_levels": [],
+      "signals": [
+        {
+          "name": "next_event",
+          "value": "jobs report 08:30 ET",
+          "evidence": [
+            "snp_case_cal"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_cal"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bearish",
+      "confidence": 0.55,
+      "summary": "Pre-market low 597.20; prior close 599.00.",
+      "key_levels": [
+        {
+          "price": 597.2,
+          "kind": "premarket_low",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 599.0,
+          "kind": "prior_close",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q597p",
+      "right": "put",
+      "strike": 597.0,
+      "expiration": "2026-10-02",
+      "bid": 1.5,
+      "ask": 1.56,
+      "iv": 0.24,
+      "delta": -0.44,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "event": "jobs"
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "names_event",
+      "params": {}
+    },
+    {
+      "name": "mentions_iv_drop",
+      "params": {}
+    },
+    {
+      "name": "waits_for_release",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Name the release and its time in the rationale.",
+      "Wait for the first 5-minute close after the release before the idea triggers.",
+      "Mention that long premium can lose value as implied volatility drops after the release."
+    ],
+    "must_avoid": [
+      "An idea that only works if the release goes one way.",
+      "Entering before the release.",
+      "Treating levels from before the release as certain after it."
+    ],
+    "best_practice": [
+      "Answer no trade before the release when the setup is a bet on the number.",
+      "Say which levels to re-check after the release."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_put",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "put",
+        "strike": 597.0,
+        "expiration": "2026-10-02",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_down",
+          "trigger_price": 597.2
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.53,
+        "stop": 0.8,
+        "target": 2.5,
+        "invalidation": "Back above the prior close 599.00.",
+        "rationale": "The jobs report is due at 08:30 ET. Wait for the first 5-minute close after the release below the pre-market low 597.20. Implied volatility often drops after the number, so the long put can lose value on a slow move.",
+        "evidence": [
+          "snp_case_q597p",
+          "snp_case_tech",
+          "snp_case_cal"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}

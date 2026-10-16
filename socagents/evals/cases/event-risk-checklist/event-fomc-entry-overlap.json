@@ -1,0 +1,168 @@
+{
+  "id": "event-fomc-entry-overlap",
+  "skill": "event-risk-checklist",
+  "title": "Technical breakdown setting up 40 minutes before FOMC",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-16T17:20:00Z",
+  "spot": 598.9,
+  "reports": [
+    {
+      "role": "event_news",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "FOMC due at 14:00 ET; high importance.",
+      "key_levels": [],
+      "signals": [
+        {
+          "name": "next_event",
+          "value": "FOMC 14:00 ET",
+          "evidence": [
+            "snp_case_cal"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_cal"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bearish",
+      "confidence": 0.6,
+      "summary": "Breaking down; 598.50 is the session low, 597.00 the next level.",
+      "key_levels": [
+        {
+          "price": 598.5,
+          "kind": "session_low",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 597.0,
+          "kind": "prior_day_low",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 599.8,
+          "kind": "vwap",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q598p",
+      "right": "put",
+      "strike": 598.0,
+      "expiration": "2026-09-16",
+      "bid": 1.4,
+      "ask": 1.46,
+      "iv": 0.31,
+      "delta": -0.4,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "event": "FOMC"
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "names_event",
+      "params": {}
+    },
+    {
+      "name": "mentions_iv_drop",
+      "params": {}
+    },
+    {
+      "name": "waits_for_release",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Name the release and its time in the rationale.",
+      "Wait for the first 5-minute close after the release before the idea triggers.",
+      "Mention that long premium can lose value as implied volatility drops after the release."
+    ],
+    "must_avoid": [
+      "An idea that only works if the release goes one way.",
+      "Entering before the release.",
+      "Treating levels from before the release as certain after it."
+    ],
+    "best_practice": [
+      "Answer no trade before the release when the setup is a bet on the number.",
+      "Say which levels to re-check after the release."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_put",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "put",
+        "strike": 598.0,
+        "expiration": "2026-09-16",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_down",
+          "trigger_price": 598.5
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.43,
+        "stop": 0.75,
+        "target": 2.4,
+        "invalidation": "Back above VWAP 599.80.",
+        "rationale": "The FOMC decision is due at 14:00 ET, inside the entry window. Wait for the first 5-minute close after the release below the session low 598.50. Implied volatility usually falls after the decision, which hurts a long put.",
+        "evidence": [
+          "snp_case_q598p",
+          "snp_case_tech",
+          "snp_case_cal"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}

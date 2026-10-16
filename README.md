@@ -117,6 +117,7 @@ Then ask your assistant: "Run the SOC Desk on SPX." The multi-agent `run_desk` t
 - CLI (`desk`, `ask`, `brief`, `replay`, `report`, `skills`, `login`, `config`, `doctor`) and a local MCP server
 - Replay a desk on its recorded data to compare models, prompts, or skills
 - Skills: strategy playbooks (`SKILL.md`) that guide desk roles, with three official ones
+- Skill evals: score a model against fixed situations written from each skill, with and without the skill ([docs](docs/evals.md))
 - Your own MCP servers (for example a broker's positions) as read-only desk tools, with allowlists, order-verb blocking, and change detection
 - Any model: Anthropic, OpenAI, Google, or local models through Ollama, set per role
 - Deterministic risk engine, and key levels checked against the data they cite

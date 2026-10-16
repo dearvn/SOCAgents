@@ -1,0 +1,161 @@
+{
+  "id": "event-cpi-premarket-call",
+  "skill": "event-risk-checklist",
+  "title": "Pre-market bullish setup with CPI at 08:30 ET",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-15T11:55:00Z",
+  "spot": 600.0,
+  "reports": [
+    {
+      "role": "event_news",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "CPI due at 08:30 ET; high importance.",
+      "key_levels": [],
+      "signals": [
+        {
+          "name": "next_event",
+          "value": "CPI 08:30 ET",
+          "evidence": [
+            "snp_case_cal"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_cal"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bullish",
+      "confidence": 0.55,
+      "summary": "Pre-market high 601.20; prior close 599.50.",
+      "key_levels": [
+        {
+          "price": 601.2,
+          "kind": "premarket_high",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 599.5,
+          "kind": "prior_close",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q601c",
+      "right": "call",
+      "strike": 601.0,
+      "expiration": "2026-09-15",
+      "bid": 1.6,
+      "ask": 1.66,
+      "iv": 0.22,
+      "delta": 0.45,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "event": "CPI"
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "names_event",
+      "params": {}
+    },
+    {
+      "name": "mentions_iv_drop",
+      "params": {}
+    },
+    {
+      "name": "waits_for_release",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Name the release and its time in the rationale.",
+      "Wait for the first 5-minute close after the release before the idea triggers.",
+      "Mention that long premium can lose value as implied volatility drops after the release."
+    ],
+    "must_avoid": [
+      "An idea that only works if the release goes one way.",
+      "Entering before the release.",
+      "Treating levels from before the release as certain after it."
+    ],
+    "best_practice": [
+      "Answer no trade before the release when the setup is a bet on the number.",
+      "Say which levels to re-check after the release."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 601.0,
+        "expiration": "2026-09-15",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_out",
+          "trigger_price": 601.2
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.63,
+        "stop": 0.85,
+        "target": 2.6,
+        "invalidation": "Back below the prior close 599.50.",
+        "rationale": "CPI is due at 08:30 ET. Wait for the first 5-minute close after the release above the pre-market high 601.20. Implied volatility usually drops after the release, so the long call can lose value even if price holds.",
+        "evidence": [
+          "snp_case_q601c",
+          "snp_case_tech",
+          "snp_case_cal"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}

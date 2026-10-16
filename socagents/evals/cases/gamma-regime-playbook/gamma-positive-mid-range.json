@@ -1,0 +1,154 @@
+{
+  "id": "gamma-positive-mid-range",
+  "skill": "gamma-regime-playbook",
+  "title": "Positive gamma, spot in the middle of the range",
+  "expect": "no_trade",
+  "symbol": "SPY",
+  "as_of": "2026-09-14T15:30:00Z",
+  "spot": 600.0,
+  "reports": [
+    {
+      "role": "dealer_positioning",
+      "stance": "neutral",
+      "confidence": 0.55,
+      "summary": "Positive gamma (estimate); spot sits midway between the put wall 596 and the call wall 604.",
+      "key_levels": [
+        {
+          "price": 596.0,
+          "kind": "put_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 604.0,
+          "kind": "call_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 592.0,
+          "kind": "zero_gamma",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "gamma_regime",
+          "value": "positive (estimate)",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_gex"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "Flat around VWAP 600.05.",
+      "key_levels": [
+        {
+          "price": 600.05,
+          "kind": "vwap",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q600c",
+      "right": "call",
+      "strike": 600.0,
+      "expiration": "2026-09-14",
+      "bid": 1.1,
+      "ask": 1.14,
+      "iv": 0.14,
+      "delta": 0.5,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "put_wall": 596.0,
+    "call_wall": 604.0,
+    "flip": 592.0
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Frame the idea by the gamma regime from the Dealer Positioning report.",
+      "Tie trigger, invalidation, and target to levels from the reports with evidence ids.",
+      "Call levels from delayed public data estimates."
+    ],
+    "must_avoid": [
+      "Chasing a breakout in positive gamma in the middle of the range.",
+      "Fading a confirmed break in negative gamma.",
+      "Triggering before a close beyond the flip when spot sits near it."
+    ],
+    "best_practice": [
+      "In positive gamma, keep targets inside the walls.",
+      "In negative gamma, say that swings can be wider.",
+      "Answer no trade when spot is mid-range with no clear trigger."
+    ]
+  },
+  "oracle": {
+    "ideas": [],
+    "no_trade_reason": "Positive gamma with spot in the middle of the 596-604 range and no trigger near a wall."
+  },
+  "counter": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 600.0,
+        "expiration": "2026-09-14",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "at_market",
+          "trigger_price": null
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.12,
+        "stop": 0.6,
+        "target": 1.8,
+        "invalidation": "Below VWAP.",
+        "rationale": "Momentum call at market.",
+        "evidence": [
+          "snp_case_q600c",
+          "snp_case_tech"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}

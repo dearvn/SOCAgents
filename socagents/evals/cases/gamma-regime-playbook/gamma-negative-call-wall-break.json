@@ -1,0 +1,181 @@
+{
+  "id": "gamma-negative-call-wall-break",
+  "skill": "gamma-regime-playbook",
+  "title": "Negative gamma under the call wall with buyers pressing",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-14T17:00:00Z",
+  "spot": 603.8,
+  "reports": [
+    {
+      "role": "dealer_positioning",
+      "stance": "bullish",
+      "confidence": 0.55,
+      "summary": "Negative gamma (estimate): below the flip 606; a break of the call wall 604 can squeeze toward the flip.",
+      "key_levels": [
+        {
+          "price": 604.0,
+          "kind": "call_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 606.0,
+          "kind": "zero_gamma",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 602.5,
+          "kind": "put_strike_cluster",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "gamma_regime",
+          "value": "negative (estimate)",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_gex"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bullish",
+      "confidence": 0.6,
+      "summary": "Higher lows into 604.",
+      "key_levels": [
+        {
+          "price": 603.2,
+          "kind": "higher_low",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q604c",
+      "right": "call",
+      "strike": 604.0,
+      "expiration": "2026-09-14",
+      "bid": 0.95,
+      "ask": 0.99,
+      "iv": 0.14,
+      "delta": 0.45,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q603p",
+      "right": "put",
+      "strike": 603.0,
+      "expiration": "2026-09-14",
+      "bid": 0.7,
+      "ask": 0.74,
+      "iv": 0.14,
+      "delta": -0.35,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "call_wall": 604.0,
+    "flip": 606.0
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "break_matches_direction",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Frame the idea by the gamma regime from the Dealer Positioning report.",
+      "Tie trigger, invalidation, and target to levels from the reports with evidence ids.",
+      "Call levels from delayed public data estimates."
+    ],
+    "must_avoid": [
+      "Chasing a breakout in positive gamma in the middle of the range.",
+      "Fading a confirmed break in negative gamma.",
+      "Triggering before a close beyond the flip when spot sits near it."
+    ],
+    "best_practice": [
+      "In positive gamma, keep targets inside the walls.",
+      "In negative gamma, say that swings can be wider.",
+      "Answer no trade when spot is mid-range with no clear trigger."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 604.0,
+        "expiration": "2026-09-14",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_out",
+          "trigger_price": 604.0
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 0.97,
+        "stop": 0.5,
+        "target": 1.8,
+        "invalidation": "Back under the higher low 603.20.",
+        "rationale": "Negative gamma (estimate): a confirmed break of the call wall 604 can run toward the flip 606; wider swings, qty 1.",
+        "evidence": [
+          "snp_case_q604c",
+          "snp_case_gex"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}

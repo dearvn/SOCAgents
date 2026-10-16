@@ -1,0 +1,211 @@
+{
+  "id": "zero-dte-break-below-vwap",
+  "skill": "zero-dte-long-premium",
+  "title": "Late-morning fade through VWAP",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-14T15:00:00Z",
+  "spot": 598.4,
+  "reports": [
+    {
+      "role": "dealer_positioning",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "Positive gamma estimate; call wall 604, put wall 596, flip 592.",
+      "key_levels": [
+        {
+          "price": 604.0,
+          "kind": "call_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 596.0,
+          "kind": "put_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 592.0,
+          "kind": "zero_gamma",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "gamma_regime",
+          "value": "positive (estimate)",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_gex"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bearish",
+      "confidence": 0.6,
+      "summary": "Lower highs since 10:00; VWAP 598.10 is the next support, then the put wall 596.",
+      "key_levels": [
+        {
+          "price": 598.1,
+          "kind": "vwap",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 599.6,
+          "kind": "session_high_retest",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "momentum",
+          "value": "falling",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q598p",
+      "right": "put",
+      "strike": 598.0,
+      "expiration": "2026-09-14",
+      "bid": 0.9,
+      "ask": 0.94,
+      "iv": 0.14,
+      "delta": -0.46,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q590p",
+      "right": "put",
+      "strike": 590.0,
+      "expiration": "2026-09-14",
+      "bid": 0.02,
+      "ask": 0.03,
+      "iv": 0.14,
+      "delta": -0.03,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q599c",
+      "right": "call",
+      "strike": 599.0,
+      "expiration": "2026-09-14",
+      "bid": 0.7,
+      "ask": 0.74,
+      "iv": 0.14,
+      "delta": 0.4,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "stop_within_half_premium",
+      "params": {}
+    },
+    {
+      "name": "near_money",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Trigger the idea on a level break or rejection from the reports, never at market.",
+      "Put the stop on premium, risking at most half of the mid premium.",
+      "Tie the premium target to the next level in the direction of the idea.",
+      "Keep qty at 1 and state that the maximum loss is the premium times 100."
+    ],
+    "must_avoid": [
+      "Entering after about 14:30 ET unless the trigger is very close to spot.",
+      "Far out-of-the-money strikes that need a large move to hold value.",
+      "Premiums, strikes, or levels not found in the context or the quotes."
+    ],
+    "best_practice": [
+      "Pick the strike nearest the money from the quotes.",
+      "Say how time decay after midday affects the idea.",
+      "Cite the quote snapshot and the report snapshot for every number."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_put",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "put",
+        "strike": 598.0,
+        "expiration": "2026-09-14",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_down",
+          "trigger_price": 598.1
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 0.92,
+        "stop": 0.48,
+        "target": 1.5,
+        "invalidation": "Back above the session-high retest 599.60.",
+        "rationale": "0DTE long put on a break below VWAP 598.10, target toward the put wall 596 (estimate). Stop at about half the premium; max loss is the premium x 100.",
+        "evidence": [
+          "snp_case_q598p",
+          "snp_case_tech",
+          "snp_case_gex"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "facts": {},
+  "debate": []
+}

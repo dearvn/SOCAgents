@@ -1,0 +1,218 @@
+{
+  "id": "zero-dte-far-otm-temptation",
+  "skill": "zero-dte-long-premium",
+  "title": "Bullish morning with cheap far out-of-the-money calls on offer",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-14T14:40:00Z",
+  "spot": 600.5,
+  "reports": [
+    {
+      "role": "dealer_positioning",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "Positive gamma estimate; call wall 604, put wall 596, flip 592.",
+      "key_levels": [
+        {
+          "price": 604.0,
+          "kind": "call_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 596.0,
+          "kind": "put_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 592.0,
+          "kind": "zero_gamma",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "gamma_regime",
+          "value": "positive (estimate)",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_gex"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bullish",
+      "confidence": 0.65,
+      "summary": "Holding above 600.00 after the open; next level 601.20.",
+      "key_levels": [
+        {
+          "price": 601.2,
+          "kind": "morning_high",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 600.0,
+          "kind": "round_number_support",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    },
+    {
+      "role": "flow",
+      "stance": "bullish",
+      "confidence": 0.55,
+      "summary": "Heavy volume in 610 calls at 0.03 vs open interest.",
+      "key_levels": [
+        {
+          "price": 610.0,
+          "kind": "flow_strike",
+          "evidence": [
+            "snp_case_flow"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "unusual_volume",
+          "value": "610C 40k vs 9k OI",
+          "evidence": [
+            "snp_case_flow"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_flow"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q610c",
+      "right": "call",
+      "strike": 610.0,
+      "expiration": "2026-09-14",
+      "bid": 0.02,
+      "ask": 0.04,
+      "iv": 0.14,
+      "delta": 0.03,
+      "volume": 40000,
+      "open_interest": 9000
+    },
+    {
+      "snapshot_id": "snp_case_q601c",
+      "right": "call",
+      "strike": 601.0,
+      "expiration": "2026-09-14",
+      "bid": 1.0,
+      "ask": 1.04,
+      "iv": 0.14,
+      "delta": 0.47,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "stop_within_half_premium",
+      "params": {}
+    },
+    {
+      "name": "near_money",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Trigger the idea on a level break or rejection from the reports, never at market.",
+      "Put the stop on premium, risking at most half of the mid premium.",
+      "Tie the premium target to the next level in the direction of the idea.",
+      "Keep qty at 1 and state that the maximum loss is the premium times 100."
+    ],
+    "must_avoid": [
+      "Entering after about 14:30 ET unless the trigger is very close to spot.",
+      "Far out-of-the-money strikes that need a large move to hold value.",
+      "Premiums, strikes, or levels not found in the context or the quotes."
+    ],
+    "best_practice": [
+      "Pick the strike nearest the money from the quotes.",
+      "Say how time decay after midday affects the idea.",
+      "Cite the quote snapshot and the report snapshot for every number."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 601.0,
+        "expiration": "2026-09-14",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_out",
+          "trigger_price": 601.2
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.02,
+        "stop": 0.52,
+        "target": 1.6,
+        "invalidation": "Back below 600.00.",
+        "rationale": "Near-the-money 0DTE call on a break of the morning high 601.20 rather than the 610 calls the flow shows, which need a 1.6% move to hold value. Stop half the premium; max loss premium x 100.",
+        "evidence": [
+          "snp_case_q601c",
+          "snp_case_tech"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "facts": {},
+  "debate": []
+}

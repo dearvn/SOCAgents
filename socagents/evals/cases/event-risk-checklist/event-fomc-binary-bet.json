@@ -1,0 +1,152 @@
+{
+  "id": "event-fomc-binary-bet",
+  "skill": "event-risk-checklist",
+  "title": "Thirty minutes before FOMC, the setup is a bet on a cut",
+  "expect": "no_trade",
+  "symbol": "SPY",
+  "as_of": "2026-09-16T17:30:00Z",
+  "spot": 600.0,
+  "reports": [
+    {
+      "role": "event_news",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "FOMC due at 14:00 ET; high importance.",
+      "key_levels": [],
+      "signals": [
+        {
+          "name": "next_event",
+          "value": "FOMC 14:00 ET",
+          "evidence": [
+            "snp_case_cal"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_cal"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "neutral",
+      "confidence": 0.45,
+      "summary": "Tight 599.50-600.50 range into the decision.",
+      "key_levels": [
+        {
+          "price": 600.5,
+          "kind": "range_high",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 599.5,
+          "kind": "range_low",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "debate": [
+    {
+      "side": "bull",
+      "round": 1,
+      "argument": "A cut would squeeze shorts through 600.50.",
+      "evidence": [
+        "snp_case_tech"
+      ]
+    },
+    {
+      "side": "bear",
+      "round": 1,
+      "argument": "A hold would break 599.50; nothing else moves it.",
+      "evidence": [
+        "snp_case_tech"
+      ]
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q601c",
+      "right": "call",
+      "strike": 601.0,
+      "expiration": "2026-09-16",
+      "bid": 1.1,
+      "ask": 1.16,
+      "iv": 0.3,
+      "delta": 0.38,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "event": "FOMC"
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Name the release and its time in the rationale.",
+      "Wait for the first 5-minute close after the release before the idea triggers.",
+      "Mention that long premium can lose value as implied volatility drops after the release."
+    ],
+    "must_avoid": [
+      "An idea that only works if the release goes one way.",
+      "Entering before the release.",
+      "Treating levels from before the release as certain after it."
+    ],
+    "best_practice": [
+      "Answer no trade before the release when the setup is a bet on the number.",
+      "Say which levels to re-check after the release."
+    ]
+  },
+  "oracle": {
+    "ideas": [],
+    "no_trade_reason": "No trade before the 14:00 ET FOMC decision: both cases depend on which way the decision goes."
+  },
+  "counter": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 601.0,
+        "expiration": "2026-09-16",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "at_market",
+          "trigger_price": null
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.13,
+        "stop": 0.6,
+        "target": 2.2,
+        "invalidation": "Fed holds.",
+        "rationale": "Positioning for a dovish Fed.",
+        "evidence": [
+          "snp_case_q601c"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "id": "event-cpi-one-way-only",
+  "skill": "event-risk-checklist",
+  "title": "The only setup needs a cool CPI print",
+  "expect": "no_trade",
+  "symbol": "SPY",
+  "as_of": "2026-09-15T12:05:00Z",
+  "spot": 599.8,
+  "reports": [
+    {
+      "role": "event_news",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "CPI due at 08:30 ET; high importance.",
+      "key_levels": [],
+      "signals": [
+        {
+          "name": "next_event",
+          "value": "CPI 08:30 ET",
+          "evidence": [
+            "snp_case_cal"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_cal"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "neutral",
+      "confidence": 0.45,
+      "summary": "Flat pre-market at 599.80; the bull case needs a cool print to reclaim 601.",
+      "key_levels": [
+        {
+          "price": 601.0,
+          "kind": "resistance",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 598.8,
+          "kind": "support",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "debate": [
+    {
+      "side": "bull",
+      "round": 1,
+      "argument": "A cool CPI print sends SPY through 601.",
+      "evidence": [
+        "snp_case_tech"
+      ]
+    },
+    {
+      "side": "bear",
+      "round": 1,
+      "argument": "Any hot print and 598.80 goes.",
+      "evidence": [
+        "snp_case_tech"
+      ]
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q601c",
+      "right": "call",
+      "strike": 601.0,
+      "expiration": "2026-09-15",
+      "bid": 1.3,
+      "ask": 1.36,
+      "iv": 0.23,
+      "delta": 0.4,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {
+    "event": "CPI"
+  },
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Name the release and its time in the rationale.",
+      "Wait for the first 5-minute close after the release before the idea triggers.",
+      "Mention that long premium can lose value as implied volatility drops after the release."
+    ],
+    "must_avoid": [
+      "An idea that only works if the release goes one way.",
+      "Entering before the release.",
+      "Treating levels from before the release as certain after it."
+    ],
+    "best_practice": [
+      "Answer no trade before the release when the setup is a bet on the number.",
+      "Say which levels to re-check after the release."
+    ]
+  },
+  "oracle": {
+    "ideas": [],
+    "no_trade_reason": "No trade before the 08:30 ET CPI release: the only setup works if the print is cool."
+  },
+  "counter": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 601.0,
+        "expiration": "2026-09-15",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_out",
+          "trigger_price": 601.0
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 1.33,
+        "stop": 0.7,
+        "target": 2.4,
+        "invalidation": "Hot CPI print.",
+        "rationale": "Betting on a cool CPI print.",
+        "evidence": [
+          "snp_case_q601c",
+          "snp_case_tech"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  }
+}

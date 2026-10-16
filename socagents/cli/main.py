@@ -44,6 +44,10 @@ from socagents.desk.render import render_report, shareable_markdown
 from socagents.desk.replay import compare_reports
 from socagents.desk.roles import PROFILES, profile_roles
 from socagents.desk.storage import DeskStore
+from socagents.evals.cases import EvalCase, discover_cases, select_cases
+from socagents.evals.gate import gate_all
+from socagents.evals.judge import Judge
+from socagents.evals.runner import CaseSummary, TrialResult, overall, run_cases
 from socagents.external_mcp import (
     ServerConfig,
     add_server,
@@ -56,10 +60,11 @@ from socagents.external_mcp import (
     verify_server,
 )
 from socagents.growth import attributed_url
+from socagents.model_gateway.router import create_model, parse_model_spec
 from socagents.providers.fixture import FixtureProvider
 from socagents.runtime.native import RunResult
 from socagents.runtime.states import RunStatus
-from socagents.session import purge_member_data
+from socagents.session import purge_member_data, resolve_model_spec, resolve_provider_name
 from socagents.skills import Skill, add_user_skill, discover, lint, remove_user_skill
 from socagents.social.discord.flow import DiscordFlowReport, run_discord_flow_once
 from socagents.social.x import auth as x_auth
@@ -102,6 +107,10 @@ x_app = typer.Typer(
 discord_app = typer.Typer(
     help="Discord: post the Options Flow digest to a channel webhook.", no_args_is_help=True
 )
+eval_app = typer.Typer(
+    help="Skill evals: score the Strategist against fixed market situations.",
+    no_args_is_help=True,
+)
 regime_app = typer.Typer(
     help="Research track: the online regime classifier's learning status.",
     no_args_is_help=True,
@@ -113,6 +122,7 @@ app.add_typer(skills_app, name="skills")
 app.add_typer(x_app, name="x")
 app.add_typer(discord_app, name="discord")
 app.add_typer(regime_app, name="regime")
+app.add_typer(eval_app, name="eval")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -918,6 +928,216 @@ def mcp_remove(name: str) -> None:
     home = _settings().home
     _servers_call(lambda: remove_server(home, name))
     console.print(f"Removed {name}.")
+
+
+# skill evals
+
+
+def _eval_cases(skill: list[str] | None, case: list[str] | None) -> list[EvalCase]:
+    cases, problems = discover_cases()
+    for problem in problems:
+        err_console.print(Text(problem, style="yellow"))
+    try:
+        return select_cases(cases, skills=skill, ids=case)
+    except SocAgentsError as exc:
+        _fail(exc)
+
+
+@eval_app.command("list")
+def eval_list(
+    skill: Annotated[list[str] | None, typer.Option("--skill", help="Only this skill.")] = None,
+) -> None:
+    """List the eval cases and what each one expects."""
+    table = Table(show_edge=False, pad_edge=False)
+    for column in ("case", "skill", "expects", "checks", "title"):
+        table.add_column(column, no_wrap=column == "case")
+    for item in _eval_cases(skill, None):
+        table.add_row(item.id, item.skill, item.expect, str(len(item.checks)), escape(item.title))
+    console.print(table)
+
+
+@eval_app.command("check")
+def eval_check(
+    skill: Annotated[list[str] | None, typer.Option("--skill", help="Only this skill.")] = None,
+) -> None:
+    """Validate the cases: the reference answer passes, the empty answer fails."""
+    settings = _settings()
+    results = gate_all(_eval_cases(skill, None), settings.home)
+    for result in results:
+        if result.ok:
+            console.print(f"[green]ok[/green]   {result.case_id}")
+        else:
+            console.print(f"[red]fail[/red] {result.case_id}")
+            for problem in result.problems:
+                console.print(Text(f"       {problem}", style="red"))
+    bad = sum(not r.ok for r in results)
+    console.print(f"{len(results) - bad} of {len(results)} cases accepted.")
+    if bad:
+        raise typer.Exit(1)
+
+
+def _trial_payload(t: TrialResult) -> dict[str, Any]:
+    return {
+        "trial": t.trial,
+        "error": t.error,
+        "passed": t.passed,
+        "score": t.score,
+        "checks": [{"name": c.name, "passed": c.passed, "detail": c.detail} for c in t.checks],
+        "judge": (
+            {"score": t.judge.score, "rationale": t.judge.rationale, "error": t.judge.error}
+            if t.judge
+            else None
+        ),
+        "output": t.output.model_dump(mode="json") if t.output else None,
+        "input_tokens": t.usage.input_tokens,
+        "output_tokens": t.usage.output_tokens,
+    }
+
+
+def _eval_payload(
+    summaries: list[CaseSummary], model_label: str, judge_label: str | None, trials: int
+) -> dict[str, Any]:
+    return {
+        "model": model_label,
+        "judge": judge_label,
+        "trials": trials,
+        "overall": overall(summaries),
+        "overall_without_skill": overall(summaries, with_skill=False),
+        "cases": [
+            {
+                "case": s.case_id,
+                "skill": s.skill,
+                "expect": s.expect,
+                "with_skill": s.with_skill,
+                "pass_rate": s.pass_rate,
+                "mean_score": s.mean_score,
+                "score_sd": s.score_sd,
+                "judge_mean": s.judge_mean,
+                "failed": s.failed_checks(),
+                "trials": [_trial_payload(t) for t in s.trials],
+            }
+            for s in summaries
+        ],
+    }
+
+
+@eval_app.command("run")
+def eval_run(
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model", "-m", help="PROVIDER/MODEL under test. Default: your default model."
+        ),
+    ] = None,
+    skill: Annotated[list[str] | None, typer.Option("--skill", help="Only this skill.")] = None,
+    case: Annotated[list[str] | None, typer.Option("--case", help="Only this case.")] = None,
+    trials: Annotated[
+        int, typer.Option(min=1, max=20, help="Answers per case. Report the spread, not one run.")
+    ] = 5,
+    ablate: Annotated[
+        bool, typer.Option("--ablate", help="Also run every case without its skill.")
+    ] = False,
+    judge: Annotated[
+        str | None,
+        typer.Option(
+            "--judge",
+            help="PROVIDER/MODEL that grades answers against the rubric. Must differ from "
+            "--model. Reported only; it never changes pass or fail.",
+        ),
+    ] = None,
+    concurrency: Annotated[int, typer.Option(min=1, max=16)] = 4,
+    out: Annotated[
+        Path | None, typer.Option("--out", help="Also write the full result as JSON here.")
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the result as JSON.")] = False,
+) -> None:
+    """Run the Strategist on each case and score it with the case's checks."""
+    settings = _settings()
+    cases = _eval_cases(skill, case)
+    rejected = [r.case_id for r in gate_all(cases, settings.home) if not r.ok]
+    if rejected:
+        _fail(
+            ConfigError(
+                f"Case(s) rejected by `socagents eval check`: {', '.join(rejected)}.",
+                code="invalid_case",
+            )
+        )
+    available, _ = discover(settings.home)
+
+    async def go() -> tuple[list[CaseSummary], str, str | None]:
+        config = load_user_config(settings.home)
+        spec = parse_model_spec(
+            resolve_model_spec(model, config, resolve_provider_name(None, config))
+        )
+        candidate = create_model(spec, settings)
+        grader: Judge | None = None
+        try:
+            if judge is not None:
+                grader = Judge(create_model(parse_model_spec(judge), settings), candidate=candidate)
+            summaries = await run_cases(
+                candidate,
+                cases,
+                available,
+                trials=trials,
+                ablate=ablate,
+                judge=grader,
+                concurrency=concurrency,
+            )
+            return summaries, str(spec), grader.label if grader else None
+        finally:
+            await candidate.aclose()
+            if grader is not None:
+                await grader.model.aclose()
+
+    try:
+        if not as_json and console.is_terminal:
+            with console.status(f"Running {len(cases)} case(s) x {trials} trial(s)…"):
+                summaries, model_label, judge_label = asyncio.run(go())
+        else:
+            summaries, model_label, judge_label = asyncio.run(go())
+    except SocAgentsError as exc:
+        _fail(exc)
+
+    payload = _eval_payload(summaries, model_label, judge_label, trials)
+    if out is not None:
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if as_json:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    table = Table(
+        title=f"{model_label} · {trials} trial(s) per case", title_justify="left", show_edge=False
+    )
+    for column in ("case", "skill", "pass@1", "score", "judge", "most failed"):
+        table.add_column(column, no_wrap=column == "case")
+    for s in summaries:
+        failed = sorted(s.failed_checks().items(), key=lambda kv: -kv[1])[:2]
+        judge_cell = f"{s.judge_mean:+.1f}" if s.judge_mean is not None else "-"
+        table.add_row(
+            s.case_id if s.with_skill else f"{s.case_id} (no skill)",
+            s.skill,
+            f"{s.pass_rate:.0%}",
+            f"{s.mean_score:.2f} ±{s.score_sd:.2f}",
+            judge_cell,
+            ", ".join(f"{name} x{n}" for name, n in failed) or "-",
+        )
+    console.print(table)
+    arms = (("with skill", True), ("without skill", False))
+    for label, with_skill in arms:
+        totals = overall(summaries, with_skill=with_skill)
+        if totals:
+            console.print(
+                f"{label}: pass@1 {totals['pass_at_1']:.0%} (±{totals['pass_at_1_sd']:.0%} "
+                f"across cases), mean score {totals['mean_score']:.2f}, "
+                f"{int(totals['errors'])} error(s) in {int(totals['trials'])} trial(s)."
+            )
+    console.print(
+        Text(
+            "Small sample: a few cases x a few trials. Read differences under about 10 points "
+            "as noise.",
+            style="dim",
+        )
+    )
 
 
 # x bot

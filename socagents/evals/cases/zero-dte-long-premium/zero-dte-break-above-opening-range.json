@@ -1,0 +1,229 @@
+{
+  "id": "zero-dte-break-above-opening-range",
+  "skill": "zero-dte-long-premium",
+  "title": "Morning push toward the opening-range high",
+  "expect": "idea",
+  "symbol": "SPY",
+  "as_of": "2026-09-14T14:15:00Z",
+  "spot": 600.2,
+  "reports": [
+    {
+      "role": "dealer_positioning",
+      "stance": "neutral",
+      "confidence": 0.5,
+      "summary": "Positive gamma estimate; call wall 604, put wall 596, flip 592.",
+      "key_levels": [
+        {
+          "price": 604.0,
+          "kind": "call_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 596.0,
+          "kind": "put_wall",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        },
+        {
+          "price": 592.0,
+          "kind": "zero_gamma",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "gamma_regime",
+          "value": "positive (estimate)",
+          "evidence": [
+            "snp_case_gex"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_gex"
+      ],
+      "notes": []
+    },
+    {
+      "role": "technical",
+      "stance": "bullish",
+      "confidence": 0.65,
+      "summary": "Above VWAP 599.40 and pressing the opening-range high 600.80.",
+      "key_levels": [
+        {
+          "price": 600.8,
+          "kind": "opening_range_high",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 599.4,
+          "kind": "vwap",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        },
+        {
+          "price": 602.0,
+          "kind": "prior_day_high",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "signals": [
+        {
+          "name": "trend",
+          "value": "up since the open",
+          "evidence": [
+            "snp_case_tech"
+          ]
+        }
+      ],
+      "evidence": [
+        "snp_case_tech"
+      ],
+      "notes": []
+    }
+  ],
+  "quotes": [
+    {
+      "snapshot_id": "snp_case_q601c",
+      "right": "call",
+      "strike": 601.0,
+      "expiration": "2026-09-14",
+      "bid": 0.84,
+      "ask": 0.88,
+      "iv": 0.14,
+      "delta": 0.42,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q600c",
+      "right": "call",
+      "strike": 600.0,
+      "expiration": "2026-09-14",
+      "bid": 1.3,
+      "ask": 1.34,
+      "iv": 0.14,
+      "delta": 0.55,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q610c",
+      "right": "call",
+      "strike": 610.0,
+      "expiration": "2026-09-14",
+      "bid": 0.01,
+      "ask": 0.02,
+      "iv": 0.14,
+      "delta": 0.02,
+      "volume": 5000,
+      "open_interest": 8000
+    },
+    {
+      "snapshot_id": "snp_case_q600p",
+      "right": "put",
+      "strike": 600.0,
+      "expiration": "2026-09-14",
+      "bid": 1.08,
+      "ask": 1.12,
+      "iv": 0.14,
+      "delta": -0.45,
+      "volume": 5000,
+      "open_interest": 8000
+    }
+  ],
+  "facts": {},
+  "checks": [
+    {
+      "name": "expectation",
+      "params": {}
+    },
+    {
+      "name": "evidence_resolves",
+      "params": {}
+    },
+    {
+      "name": "quote_matches",
+      "params": {}
+    },
+    {
+      "name": "qty_one",
+      "params": {}
+    },
+    {
+      "name": "complete_plan",
+      "params": {}
+    },
+    {
+      "name": "trigger_on_level",
+      "params": {}
+    },
+    {
+      "name": "stop_within_half_premium",
+      "params": {}
+    },
+    {
+      "name": "near_money",
+      "params": {}
+    }
+  ],
+  "rubric": {
+    "must_do": [
+      "Trigger the idea on a level break or rejection from the reports, never at market.",
+      "Put the stop on premium, risking at most half of the mid premium.",
+      "Tie the premium target to the next level in the direction of the idea.",
+      "Keep qty at 1 and state that the maximum loss is the premium times 100."
+    ],
+    "must_avoid": [
+      "Entering after about 14:30 ET unless the trigger is very close to spot.",
+      "Far out-of-the-money strikes that need a large move to hold value.",
+      "Premiums, strikes, or levels not found in the context or the quotes."
+    ],
+    "best_practice": [
+      "Pick the strike nearest the money from the quotes.",
+      "Say how time decay after midday affects the idea.",
+      "Cite the quote snapshot and the report snapshot for every number."
+    ]
+  },
+  "oracle": {
+    "ideas": [
+      {
+        "structure": "long_call",
+        "symbol": "SPY",
+        "instrument": "option",
+        "action": "buy",
+        "right": "call",
+        "strike": 601.0,
+        "expiration": "2026-09-14",
+        "qty": 1,
+        "legs": 1,
+        "entry": {
+          "condition": "break_out",
+          "trigger_price": 600.8
+        },
+        "price_basis": "premium",
+        "est_entry_premium": 0.86,
+        "stop": 0.45,
+        "target": 1.4,
+        "invalidation": "Back below VWAP 599.40.",
+        "rationale": "0DTE long call on a break of the opening-range high 600.80, target toward the prior-day high 602.00. Stop on premium at about half. Max loss is the premium x 100; time decay speeds up after midday.",
+        "evidence": [
+          "snp_case_q601c",
+          "snp_case_tech"
+        ]
+      }
+    ],
+    "no_trade_reason": null
+  },
+  "debate": []
+}
